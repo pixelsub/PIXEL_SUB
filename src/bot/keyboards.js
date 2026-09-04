@@ -28,15 +28,33 @@ export function shopKeyboard(products) {
   return kb;
 }
 
-// Product detail with a quantity stepper
+// Quantities offered as one-tap buttons. Anything else is typed in via Custom.
+const QTY_PRESETS = [1, 2, 3, 5];
+
+// Product detail: quantity presets, then one row per payment method
 export function productKeyboard(product, qty, maxQty, opts = {}) {
   const kb = new InlineKeyboard();
-  const canDec = qty > 1;
-  const canInc = qty < maxQty;
-  kb.text(canDec ? '➖' : ' ', canDec ? `q:${product.id}:${qty - 1}` : 'noop')
-    .text(`Qty: ${qty}`, 'noop')
-    .text(canInc ? '➕' : ' ', canInc ? `q:${product.id}:${qty + 1}` : 'noop')
-    .row();
+  // With only one buyable unit there is nothing to choose, so the row is
+  // dropped entirely rather than shown as a single inert button.
+  if (maxQty > 1) {
+    // A preset above maxQty would only earn an "only N left" error at
+    // checkout, so it is never offered.
+    const presets = QTY_PRESETS.filter((n) => n <= maxQty);
+    for (const n of presets) {
+      // The current quantity is inert: re-rendering it unchanged makes
+      // Telegram reject the edit as "message is not modified".
+      kb.text(n === qty ? `✅ ${n}` : String(n), n === qty ? 'noop' : `q:${product.id}:${n}`);
+    }
+    kb.row();
+    // Skip Custom when the presets already cover every buyable quantity
+    // (maxQty 3 or less), since there would be nothing left to type.
+    const coversAll = presets.length === maxQty;
+    if (!coversAll) {
+      // Shows the typed quantity when it is not one of the presets, so the
+      // selection stays visible somewhere on the keyboard.
+      kb.text(presets.includes(qty) ? '✏️ Custom' : `✏️ Custom: ${qty}`, `qc:${product.id}`).row();
+    }
+  }
   const total = num(product.price) * qty;
   // Only show Crypto when Cryptomus is fully configured. "(Auto)" is not
   // decoration — it appears only where payment truly confirms itself.
@@ -109,6 +127,11 @@ export function orderDetailKeyboard(order) {
 
 export function backMenuKeyboard() {
   return new InlineKeyboard().text('🏠 Main Menu', 'menu');
+}
+
+// Shown while the customer is typing a custom quantity.
+export function qtyPromptKeyboard(productId) {
+  return new InlineKeyboard().text('⬅️ Back', `p:${productId}`).text('🏠 Menu', 'menu');
 }
 
 export function supportKeyboard() {

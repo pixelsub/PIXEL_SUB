@@ -15,6 +15,7 @@ import {
   orderDetailKeyboard,
   supportKeyboard,
   backMenuKeyboard,
+  qtyPromptKeyboard,
   statusEmoji,
 } from './keyboards.js';
 import { showAdminMenu } from './admin.js';
@@ -64,6 +65,7 @@ async function getProductWithStock(id) {
 async function showMainMenu(ctx) {
   clearWalletState(ctx.from.id);
   clearTxPrompt(ctx.from.id);
+  clearQtyPrompt(ctx.from.id);
   // Admins get their control panel straight from /start.
   if (ctx.isAdmin) return showAdminMenu(ctx);
   const shopName = await getSetting('shop_name');
@@ -81,7 +83,12 @@ async function showShop(ctx) {
   await smartSend(ctx, intro, shopKeyboard(products));
 }
 
+// Customers typing a custom quantity: telegram id -> product id.
+const qtyPrompt = new Map();
+export function clearQtyPrompt(id) { qtyPrompt.delete(String(id)); }
+
 async function showProduct(ctx, productId, qty = 1) {
+  clearQtyPrompt(ctx.from.id);
   const product = await getProductWithStock(productId);
   if (!product || !product.isActive) {
     await ctx.answerCallbackQuery({ text: 'Product unavailable.', show_alert: true }).catch(() => {});
@@ -116,6 +123,59 @@ async function showProduct(ctx, productId, qty = 1) {
   }
 
   await smartSend(ctx, text, productKeyboard(product, qty, maxQty, { balance: num(ctx.dbUser.balance) }));
+}
+
+// Ask for a quantity the presets don't cover.
+async function askCustomQty(ctx, productId) {
+  const product = await getProductWithStock(productId);
+  if (!product || !product.isActive) {
+    await ctx.answerCallbackQuery({ text: 'Product unavailable.', show_alert: true }).catch(() => {});
+    return showShop(ctx);
+  }
+  const maxQty = product.usesStock ? Math.max(0, product.available) : 99;
+  qtyPrompt.set(String(ctx.from.id), productId);
+  await ctx.answerCallbackQuery().catch(() => {});
+  await smartSend(
+    ctx,
+    `✏️ <b>How many do you want?</b>\n\n` +
+      `${escapeHtml(product.emoji)} ${escapeHtml(product.name)} — ${money(num(product.price))} each\n\n` +
+      `Send a number between <b>1</b> and <b>${maxQty}</b> as a message (e.g. <code>12</code>).`,
+    qtyPromptKeyboard(productId)
+  );
+}
+
+// Handle a text message while a custom quantity is awaited. Returns true if consumed.
+async function handleQtyText(ctx) {
+  const productId = qtyPrompt.get(String(ctx.from.id));
+  if (!productId) return false;
+  // A slash command is never a quantity — drop the prompt so the command runs
+  // and nobody can get stuck here.
+  if (String(ctx.message.text || '').startsWith('/')) { clearQtyPrompt(ctx.from.id); return false; }
+
+  const product = await getProductWithStock(productId);
+  if (!product || !product.isActive) {
+    clearQtyPrompt(ctx.from.id);
+    await ctx.reply('Product is no longer available.', { reply_markup: backMenuKeyboard().text('🛍️ Shop', 'shop') });
+    return true;
+  }
+
+  const maxQty = product.usesStock ? Math.max(0, product.available) : 99;
+  const qty = parseInt(String(ctx.message.text).replace(/[^\d]/g, ''), 10);
+  if (!(qty > 0)) {
+    await ctx.reply('❌ Please send a whole number, e.g. 12', { reply_markup: qtyPromptKeyboard(productId) });
+    return true;
+  }
+  if (qty > maxQty) {
+    await ctx.reply(
+      `❌ Only <b>${maxQty}</b> available right now. Please send a smaller number.`,
+      { parse_mode: 'HTML', reply_markup: qtyPromptKeyboard(productId) }
+    );
+    return true;
+  }
+
+  // showProduct clears the prompt itself.
+  await showProduct(ctx, productId, qty);
+  return true;
 }
 
 async function doPayWithBalance(ctx, productId, qty) {
@@ -579,6 +639,9 @@ export function registerHandlers(bot) {
     await ctx.answerCallbackQuery().catch(() => {});
     await showProduct(ctx, Number(ctx.match[1]), Number(ctx.match[2]));
   });
+  bot.callbackQuery(/^qc:(\d+)$/, async (ctx) => {
+    await askCustomQty(ctx, Number(ctx.match[1]));
+  });
   bot.callbackQuery(/^checkout:(\d+):(\d+)$/, async (ctx) => {
     await doCheckout(ctx, Number(ctx.match[1]), Number(ctx.match[2]));
   });
@@ -619,9 +682,11 @@ export function registerHandlers(bot) {
     await doManualCancel(ctx, Number(ctx.match[1]));
   });
 
-  // Fallback for any stray text: wallet custom-amount entry, else show the menu.
+  // Fallback for any stray text: transaction id, custom quantity, wallet
+  // custom-amount entry, else show the menu.
   bot.on('message:text', async (ctx) => {
     if (await handleTxReference(ctx)) return;
+    if (await handleQtyText(ctx)) return;
     if (ctx.message.text?.startsWith('/')) return; // unknown command
     if (await handleWalletText(ctx)) return;
     await showMainMenu(ctx);
