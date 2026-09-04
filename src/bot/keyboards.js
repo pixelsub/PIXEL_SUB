@@ -31,30 +31,26 @@ export function shopKeyboard(products) {
 // Quantities offered as one-tap buttons. Anything else is typed in via Custom.
 const QTY_PRESETS = [1, 2, 3, 5];
 
-// Product detail: quantity presets, then one row per payment method
-export function productKeyboard(product, qty, maxQty, opts = {}) {
+// Step 1 of checkout: pick how many. Tapping a quantity moves on to the
+// payment step rather than re-rendering this page, so the two decisions stay
+// separate and the keyboard never gets long enough to scroll.
+export function qtyKeyboard(product, maxQty) {
   const kb = new InlineKeyboard();
-  // With only one buyable unit there is nothing to choose, so the row is
-  // dropped entirely rather than shown as a single inert button.
-  if (maxQty > 1) {
-    // A preset above maxQty would only earn an "only N left" error at
-    // checkout, so it is never offered.
-    const presets = QTY_PRESETS.filter((n) => n <= maxQty);
-    for (const n of presets) {
-      // The current quantity is inert: re-rendering it unchanged makes
-      // Telegram reject the edit as "message is not modified".
-      kb.text(n === qty ? `✅ ${n}` : String(n), n === qty ? 'noop' : `q:${product.id}:${n}`);
-    }
-    kb.row();
-    // Skip Custom when the presets already cover every buyable quantity
-    // (maxQty 3 or less), since there would be nothing left to type.
-    const coversAll = presets.length === maxQty;
-    if (!coversAll) {
-      // Shows the typed quantity when it is not one of the presets, so the
-      // selection stays visible somewhere on the keyboard.
-      kb.text(presets.includes(qty) ? '✏️ Custom' : `✏️ Custom: ${qty}`, `qc:${product.id}`).row();
-    }
-  }
+  // A preset above maxQty would only earn an "only N left" error at
+  // checkout, so it is never offered.
+  const presets = QTY_PRESETS.filter((n) => n <= maxQty);
+  for (const n of presets) kb.text(String(n), `q:${product.id}:${n}`);
+  kb.row();
+  // Skip Custom when the presets already cover every buyable quantity
+  // (maxQty 3 or less), since there would be nothing left to type.
+  if (presets.length !== maxQty) kb.text('✏️ Custom', `qc:${product.id}`).row();
+  kb.text('⬅️ Back to Shop', 'shop').text('🏠 Menu', 'menu');
+  return kb;
+}
+
+// Step 2 of checkout: one row per payment method, priced for the chosen qty.
+export function paymentKeyboard(product, qty, maxQty, opts = {}) {
+  const kb = new InlineKeyboard();
   const total = num(product.price) * qty;
   // Only show Crypto when Cryptomus is fully configured. "(Auto)" is not
   // decoration — it appears only where payment truly confirms itself.
@@ -73,6 +69,9 @@ export function productKeyboard(product, qty, maxQty, opts = {}) {
   if (opts.balance !== undefined && opts.balance >= total) {
     kb.text(`💰 Pay ${money(total)} with Balance`, `paybal:${product.id}:${qty}`).row();
   }
+  // Back goes to the quantity step, not the shop — the usual reason to go back
+  // here is to buy a different number. Hidden when there was no choice to make.
+  if (maxQty > 1) kb.text('⬅️ Change Quantity', `p:${product.id}`).row();
   kb.text('⬅️ Back to Shop', 'shop').text('🏠 Menu', 'menu');
   return kb;
 }
@@ -133,7 +132,6 @@ export function backMenuKeyboard() {
 export function qtyPromptKeyboard(productId) {
   return new InlineKeyboard().text('⬅️ Back', `p:${productId}`).text('🏠 Menu', 'menu');
 }
-
 export function supportKeyboard() {
   const kb = new InlineKeyboard();
   if (config.telegram.supportTelegramId) {

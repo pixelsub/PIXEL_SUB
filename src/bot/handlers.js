@@ -8,7 +8,8 @@ import { showWallet, handleWalletText, clearWalletState } from './wallet.js';
 import {
   mainMenuKeyboard,
   shopKeyboard,
-  productKeyboard,
+  qtyKeyboard,
+  paymentKeyboard,
   payKeyboard,
   manualPayKeyboard,
   ordersKeyboard,
@@ -87,7 +88,7 @@ async function showShop(ctx) {
 const qtyPrompt = new Map();
 export function clearQtyPrompt(id) { qtyPrompt.delete(String(id)); }
 
-async function showProduct(ctx, productId, qty = 1) {
+async function showProduct(ctx, productId) {
   clearQtyPrompt(ctx.from.id);
   const product = await getProductWithStock(productId);
   if (!product || !product.isActive) {
@@ -96,22 +97,7 @@ async function showProduct(ctx, productId, qty = 1) {
   }
 
   const maxQty = product.usesStock ? Math.max(0, product.available) : 99;
-  qty = Math.min(Math.max(1, qty), Math.max(1, maxQty));
-
   const inStock = !product.usesStock || product.available > 0;
-  const stockLine = product.usesStock
-    ? inStock
-      ? `📦 <b>In stock:</b> ${product.available}`
-      : '📦 <b>Out of stock</b>'
-    : '♾️ <b>Always available</b>';
-
-  const descBlock = product.description ? `\n\n${escapeHtml(product.description)}` : '';
-  const total = num(product.price) * qty;
-  const text =
-    `${escapeHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n` +
-    `💵 <b>Price:</b> ${money(num(product.price))} each\n` +
-    `${stockLine}${descBlock}` +
-    `\n\n🧮 <b>Total for ${qty}:</b> ${money(total)}`;
 
   if (!inStock) {
     await smartSend(
@@ -122,7 +108,53 @@ async function showProduct(ctx, productId, qty = 1) {
     return;
   }
 
-  await smartSend(ctx, text, productKeyboard(product, qty, maxQty, { balance: num(ctx.dbUser.balance) }));
+  // Nothing to choose with a single unit — skip straight to paying for it.
+  if (maxQty === 1) return showPayment(ctx, productId, 1);
+
+  const stockLine = product.usesStock
+    ? `📦 <b>In stock:</b> ${product.available}`
+    : '♾️ <b>Always available</b>';
+  const descBlock = product.description ? `\n\n${escapeHtml(product.description)}` : '';
+  const text =
+    `${escapeHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n` +
+    `💵 <b>Price:</b> ${money(num(product.price))} each\n` +
+    `${stockLine}${descBlock}\n\n` +
+    `🧮 <b>How many do you want?</b>`;
+
+  await smartSend(ctx, text, qtyKeyboard(product, maxQty));
+}
+
+// Step 2: quantity is fixed, now choose how to pay.
+async function showPayment(ctx, productId, qty) {
+  clearQtyPrompt(ctx.from.id);
+  const product = await getProductWithStock(productId);
+  if (!product || !product.isActive) {
+    await ctx.answerCallbackQuery({ text: 'Product unavailable.', show_alert: true }).catch(() => {});
+    return showShop(ctx);
+  }
+
+  const maxQty = product.usesStock ? Math.max(0, product.available) : 99;
+  if (maxQty < 1) {
+    await smartSend(
+      ctx,
+      `${escapeHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n\n😔 This item just went out of stock. Please check back soon!`,
+      backMenuKeyboard().text('⬅️ Back to Shop', 'shop')
+    );
+    return;
+  }
+  // Stock can fall between picking a quantity and landing here.
+  qty = Math.min(Math.max(1, qty), maxQty);
+
+  const total = num(product.price) * qty;
+  const text =
+    `${escapeHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n` +
+    `━━━━━━━━━━━━━━━\n\n` +
+    `🔢 <b>Quantity:</b> ${qty}\n` +
+    `💵 <b>Price:</b> ${money(num(product.price))} each\n` +
+    `🧮 <b>Total:</b> ${money(total)}\n\n` +
+    `💳 <b>Choose your payment method:</b>`;
+
+  await smartSend(ctx, text, paymentKeyboard(product, qty, maxQty, { balance: num(ctx.dbUser.balance) }));
 }
 
 // Ask for a quantity the presets don't cover.
@@ -173,8 +205,8 @@ async function handleQtyText(ctx) {
     return true;
   }
 
-  // showProduct clears the prompt itself.
-  await showProduct(ctx, productId, qty);
+  // showPayment clears the prompt itself.
+  await showPayment(ctx, productId, qty);
   return true;
 }
 
@@ -633,11 +665,13 @@ export function registerHandlers(bot) {
 
   bot.callbackQuery(/^p:(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    await showProduct(ctx, Number(ctx.match[1]), 1);
+    await showProduct(ctx, Number(ctx.match[1]));
   });
+  // Quantity chosen -> payment step. Also catches the old in-place stepper
+  // buttons still sitting in customers' older chat messages.
   bot.callbackQuery(/^q:(\d+):(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    await showProduct(ctx, Number(ctx.match[1]), Number(ctx.match[2]));
+    await showPayment(ctx, Number(ctx.match[1]), Number(ctx.match[2]));
   });
   bot.callbackQuery(/^qc:(\d+)$/, async (ctx) => {
     await askCustomQty(ctx, Number(ctx.match[1]));
