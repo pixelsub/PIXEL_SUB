@@ -376,19 +376,38 @@ async function handleAdminText(ctx) {
       await ctx.reply('Step 2/4 — Send an <b>emoji</b> for it (or send <code>-</code> to skip):', { parse_mode: 'HTML', reply_markup: cancelKb() });
     } else if (st.step === 'emoji') {
       st.draft.emoji = text === '-' ? '🛍️' : text.trim().slice(0, 8); st.step = 'price';
-      await ctx.reply('Step 3/4 — Send the <b>price in USD</b> (e.g. 4.99):', { parse_mode: 'HTML', reply_markup: cancelKb() });
+      await ctx.reply(
+        'Step 3/4 — Send the <b>price</b>, and optionally <b>your cost</b> after a space.\n\n' +
+        '<code>8.50</code> — price only\n' +
+        '<code>8.50 7</code> — sells for 8.50, costs you 7\n\n' +
+        'Cost is never shown to customers. It is what makes the profit report real.',
+        { parse_mode: 'HTML', reply_markup: cancelKb() }
+      );
     } else if (st.step === 'price') {
-      const price = parseFloat(text.replace(',', '.'));
-      if (!(price >= 0)) { await ctx.reply('❌ Please send a valid number, e.g. 4.99'); return true; }
-      st.draft.price = price; st.step = 'desc';
+      // Accept "price" or "price cost". Capturing the cost here matters: a
+      // product created without one reports at 100% margin until somebody
+      // remembers to go back and set it.
+      const parts = text.replace(',', '.').split(/\s+/).filter(Boolean);
+      const price = parseFloat(parts[0]);
+      const cost = parts.length > 1 ? parseFloat(parts[1]) : 0;
+      if (!(price >= 0)) { await ctx.reply('❌ Send a price like 4.99 — or 4.99 3.50 to include your cost'); return true; }
+      if (parts.length > 1 && !(cost >= 0)) { await ctx.reply('❌ The cost must be a number, e.g. 8.50 7'); return true; }
+      st.draft.price = price; st.draft.cost = cost; st.step = 'desc';
       await ctx.reply('Step 4/4 — Send a short <b>description</b> (or <code>-</code> to skip):', { parse_mode: 'HTML', reply_markup: cancelKb() });
     } else if (st.step === 'desc') {
       st.draft.description = text === '-' ? '' : text.slice(0, 500);
       const p = await prisma.product.create({
-        data: { name: st.draft.name, emoji: st.draft.emoji, price: st.draft.price, description: st.draft.description, usesStock: true },
+        data: { name: st.draft.name, emoji: st.draft.emoji, price: st.draft.price, cost: st.draft.cost || 0, description: st.draft.description, usesStock: true },
       });
       clearState(ctx.from.id);
-      await ctx.reply(`✅ Created <b>${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</b> at ${money(num(p.price))}.\n\nNow add stock so customers can buy it.`, {
+      const c = num(p.cost);
+      const marginLine = c > 0
+        ? `📈 Margin: <b>${money(num(p.price) - c)}</b> per unit`
+        : '⚠️ No cost set — this product will report 100% profit until you add one.';
+      await ctx.reply(
+        `✅ Created <b>${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</b> at ${money(num(p.price))}.\n` +
+        `${marginLine}\n\nNow add stock so customers can buy it.`,
+        {
         parse_mode: 'HTML',
         reply_markup: new InlineKeyboard().text('➕ Add Stock', `a:paddstock:${p.id}`).row().text('🏷️ Products', 'a:products'),
       });
