@@ -88,7 +88,16 @@ async function showShop(ctx) {
 const qtyPrompt = new Map();
 export function clearQtyPrompt(id) { qtyPrompt.delete(String(id)); }
 
+// Tapping a product goes straight to paying for one. Choosing a quantity is a
+// deliberate detour, not a toll every customer pays: most buy a single unit,
+// and an extra screen there costs everyone a Telegram round trip.
 async function showProduct(ctx, productId) {
+  clearQtyPrompt(ctx.from.id);
+  return showPayment(ctx, productId, 1);
+}
+
+// The quantity step, reached from the payment page.
+async function showQuantity(ctx, productId) {
   clearQtyPrompt(ctx.from.id);
   const product = await getProductWithStock(productId);
   if (!product || !product.isActive) {
@@ -137,7 +146,7 @@ async function showPayment(ctx, productId, qty) {
   if (maxQty < 1) {
     await smartSend(
       ctx,
-      `${escapeHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n\n😔 This item just went out of stock. Please check back soon!`,
+      `${escapeHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n\n😔 This item is currently out of stock. Please check back soon!`,
       backMenuKeyboard().text('⬅️ Back to Shop', 'shop')
     );
     return;
@@ -672,6 +681,10 @@ export function registerHandlers(bot) {
   bot.callbackQuery(/^q:(\d+):(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery().catch(() => {});
     await showPayment(ctx, Number(ctx.match[1]), Number(ctx.match[2]));
+  });
+  bot.callbackQuery(/^pq:(\d+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    await showQuantity(ctx, Number(ctx.match[1]));
   });
   bot.callbackQuery(/^qc:(\d+)$/, async (ctx) => {
     await askCustomQty(ctx, Number(ctx.match[1]));

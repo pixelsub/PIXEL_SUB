@@ -69,9 +69,9 @@ export function paymentKeyboard(product, qty, maxQty, opts = {}) {
   if (opts.balance !== undefined && opts.balance >= total) {
     kb.text(`💰 Pay ${money(total)} with Balance`, `paybal:${product.id}:${qty}`).row();
   }
-  // Back goes to the quantity step, not the shop — the usual reason to go back
-  // here is to buy a different number. Hidden when there was no choice to make.
-  if (maxQty > 1) kb.text('⬅️ Change Quantity', `p:${product.id}`).row();
+  // The quantity control lives here rather than on its own screen, so the
+  // common case (one unit) costs no extra tap. Doubles as a readout.
+  if (maxQty > 1) kb.text(`🔢 Quantity: ${qty} — tap to change`, `pq:${product.id}`).row();
   kb.text('⬅️ Back to Shop', 'shop').text('🏠 Menu', 'menu');
   return kb;
 }
@@ -130,7 +130,7 @@ export function backMenuKeyboard() {
 
 // Shown while the customer is typing a custom quantity.
 export function qtyPromptKeyboard(productId) {
-  return new InlineKeyboard().text('⬅️ Back', `p:${productId}`).text('🏠 Menu', 'menu');
+  return new InlineKeyboard().text('⬅️ Back', `pq:${productId}`).text('🏠 Menu', 'menu');
 }
 export function supportKeyboard() {
   const kb = new InlineKeyboard();
