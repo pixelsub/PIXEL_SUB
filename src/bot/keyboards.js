@@ -17,12 +17,20 @@ export function mainMenuKeyboard(isAdmin = false) {
   return kb;
 }
 
-// Product list: one product per row
+// Product list: one per row. Telegram cannot colour a button, so stock state
+// is carried by a marker and by position — sold-out items sort to the bottom
+// in getActiveProducts, so the first thing a customer meets is buyable.
 export function shopKeyboard(products) {
   const kb = new InlineKeyboard();
   for (const p of products) {
-    const stockLabel = p.usesStock ? ` · 📦 ${p.available}` : '';
-    kb.text(`${p.emoji} ${p.name} — ${money(num(p.price))}${stockLabel}`, `p:${p.id}`).row();
+    const available = !p.usesStock || p.available > 0;
+    const tail = !p.usesStock
+      ? '♾️'
+      : available
+        ? `📦 ${p.available}`
+        : 'Out of stock';
+    const mark = available ? '' : '❌ ';
+    kb.text(`${mark}${p.emoji} ${p.name} | ${money(num(p.price))} | ${tail}`, `p:${p.id}`).row();
   }
   kb.text('🏠 Main Menu', 'menu');
   return kb;

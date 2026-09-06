@@ -45,13 +45,21 @@ async function smartSend(ctx, text, keyboard) {
   await ctx.reply(text, opts);
 }
 
+// A product is buyable when it is unlimited, or has unsold stock left.
+const inStock = (p) => !p.usesStock || p.available > 0;
+
 async function getActiveProducts() {
   const products = await prisma.product.findMany({
     where: { isActive: true },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
     include: { _count: { select: { stock: { where: { isSold: false } } } } },
   });
-  return products.map((p) => ({ ...p, available: p._count.stock }));
+  return products
+    .map((p) => ({ ...p, available: p._count.stock }))
+    // Sold-out items sink to the bottom so customers meet what they can
+    // actually buy first. Array#sort is stable, so the configured sortOrder
+    // still decides the order inside each group.
+    .sort((a, b) => Number(inStock(b)) - Number(inStock(a)));
 }
 
 async function getProductWithStock(id) {
@@ -88,15 +96,13 @@ async function showShop(ctx) {
 const qtyPrompt = new Map();
 export function clearQtyPrompt(id) { qtyPrompt.delete(String(id)); }
 
-// Tapping a product goes straight to paying for one. Choosing a quantity is a
-// deliberate detour, not a toll every customer pays: most buy a single unit,
-// and an extra screen there costs everyone a Telegram round trip.
+// Checkout is quantity first, then payment. Each step is one message edit, so
+// it costs a single Telegram round trip and holds nothing in memory between
+// screens except the product id while a custom amount is being typed.
 async function showProduct(ctx, productId) {
-  clearQtyPrompt(ctx.from.id);
-  return showPayment(ctx, productId, 1);
+  return showQuantity(ctx, productId);
 }
 
-// The quantity step, reached from the payment page.
 async function showQuantity(ctx, productId) {
   clearQtyPrompt(ctx.from.id);
   const product = await getProductWithStock(productId);
@@ -155,9 +161,12 @@ async function showPayment(ctx, productId, qty) {
   qty = Math.min(Math.max(1, qty), maxQty);
 
   const total = num(product.price) * qty;
+  // Carry the description through: this is the last screen before paying,
+  // and where a customer checks what they are actually buying.
+  const desc = product.description ? `\n${escapeHtml(product.description)}\n` : '';
   const text =
     `${escapeHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n` +
-    `━━━━━━━━━━━━━━━\n\n` +
+    `━━━━━━━━━━━━━━━\n${desc}\n` +
     `🔢 <b>Quantity:</b> ${qty}\n` +
     `💵 <b>Price:</b> ${money(num(product.price))} each\n` +
     `🧮 <b>Total:</b> ${money(total)}\n\n` +
