@@ -102,47 +102,89 @@ async function showStats(ctx) {
 // count — the sale happened, it was just funded from credit.
 const SOLD_STATUSES = ['PAID', 'DELIVERED'];
 
-async function profitRows() {
-  const items = await prisma.orderItem.findMany({
-    where: { order: { status: { in: SOLD_STATUSES }, kind: 'PURCHASE' } },
-    select: { productId: true, productName: true, emoji: true, quantity: true, lineTotal: true, unitCost: true },
-  });
+async function showProfit(ctx, page = 0) {
+  clearState(ctx.from.id);
 
+  // All-time + today profit in one go
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  const [allItems, todayItems] = await Promise.all([
+    prisma.orderItem.findMany({
+      where: { order: { status: { in: SOLD_STATUSES }, kind: 'PURCHASE' } },
+      select: { productId: true, productName: true, emoji: true, quantity: true, lineTotal: true, unitCost: true },
+    }),
+    prisma.orderItem.findMany({
+      where: { order: { status: { in: SOLD_STATUSES }, kind: 'PURCHASE', paidAt: { gte: today } } },
+      select: { productName: true, emoji: true, quantity: true, lineTotal: true, unitCost: true },
+    }),
+  ]);
+
+  // --- all-time ---
   const byProduct = new Map();
-  let revenue = 0;
-  let cost = 0;
-  let unitsSold = 0;
-  let linesMissingCost = 0;
-
-  for (const i of items) {
+  let revenue = 0, cost = 0, unitsSold = 0, linesMissingCost = 0;
+  for (const i of allItems) {
     const rev = num(i.lineTotal);
     const c = num(i.unitCost) * i.quantity;
-    revenue += rev;
-    cost += c;
-    unitsSold += i.quantity;
+    revenue += rev; cost += c; unitsSold += i.quantity;
     if (num(i.unitCost) === 0) linesMissingCost++;
-
     const key = i.productId ?? `deleted:${i.productName}`;
     const row = byProduct.get(key) || { name: i.productName, emoji: i.emoji, qty: 0, revenue: 0, cost: 0 };
-    row.qty += i.quantity;
-    row.revenue += rev;
-    row.cost += c;
+    row.qty += i.quantity; row.revenue += rev; row.cost += c;
     byProduct.set(key, row);
   }
 
-  const rows = [...byProduct.values()]
-    .map((r) => ({ ...r, profit: r.revenue - r.cost }))
-    .sort((a, b) => b.profit - a.profit);
+  // --- today ---
+  const todayByProduct = new Map();
+  let tRevenue = 0, tCost = 0, tUnits = 0;
+  for (const i of todayItems) {
+    const rev = num(i.lineTotal);
+    const c = num(i.unitCost) * i.quantity;
+    tRevenue += rev; tCost += c; tUnits += i.quantity;
+    const key = i.productName;
+    const row = todayByProduct.get(key) || { name: i.productName, emoji: i.emoji, qty: 0, revenue: 0, cost: 0 };
+    row.qty += i.quantity; row.revenue += rev; row.cost += c;
+    todayByProduct.set(key, row);
+  }
 
-  return { rows, revenue, cost, profit: revenue - cost, unitsSold, linesMissingCost, lineCount: items.length };
-}
+  const rows = [...byProduct.values()].map((r) => ({ ...r, profit: r.revenue - r.cost })).sort((a, b) => b.profit - a.profit);
+  const todayRows = [...todayByProduct.values()].map((r) => ({ ...r, profit: r.revenue - r.cost })).sort((a, b) => b.profit - a.profit);
 
-async function showProfit(ctx, page = 0) {
-  clearState(ctx.from.id);
-  const { rows, revenue, cost, profit, unitsSold, linesMissingCost, lineCount } = await profitRows();
-
-  if (!lineCount) {
+  if (!allItems.length && !todayItems.length) {
     return adminSend(ctx, '📈 <b>Profit</b>\n\nNo completed sales yet.', new InlineKeyboard().text('⬅️ Back', 'a:menu'));
+  }
+
+  const marginPct = revenue > 0 ? ((revenue - cost) / revenue * 100).toFixed(1) : '0.0';
+  const tProfit = tRevenue - tCost;
+  const tMarginPct = tRevenue > 0 ? ((tProfit / tRevenue) * 100).toFixed(1) : '0.0';
+
+  let text =
+    `📈 <b>Profit</b>\n\n` +
+    // --- TODAY ---
+    `📅 <b>Today</b>\n` +
+    `💵 Revenue: <b>${money(tRevenue)}</b>\n` +
+    `🏷 Cost: <b>${money(tCost)}</b>\n` +
+    `${tProfit >= 0 ? '✅' : '🔻'} Profit: <b>${money(tProfit)}</b> (${tMarginPct}%)\n` +
+    `📦 Units: <b>${tUnits}</b>\n`;
+
+  if (todayRows.length) {
+    text += `\n<b>Today by product</b>\n`;
+    for (const r of todayRows) {
+      const pct = r.revenue > 0 ? ((r.profit / r.revenue) * 100).toFixed(0) : '0';
+      text += `${escapeHtml(r.emoji)} ${escapeHtml(r.name)} ×${r.qty}  ${money(r.revenue)} − ${money(r.cost)} = <b>${money(r.profit)}</b> (${pct}%)\n`;
+    }
+  }
+
+  // --- ALL-TIME ---
+  text +=
+    `\n━━━━━━━━━━━━━━━\n` +
+    `📊 <b>All Time</b>\n` +
+    `💵 Revenue: <b>${money(revenue)}</b>\n` +
+    `🏷 Cost: <b>${money(cost)}</b>\n` +
+    `${revenue - cost >= 0 ? '✅' : '🔻'} Profit: <b>${money(revenue - cost)}</b> (${marginPct}%)\n` +
+    `📦 Units sold: <b>${unitsSold}</b>\n`;
+
+  if (linesMissingCost) {
+    text += `\n⚠️ <b>${linesMissingCost}</b> line(s) missing cost.\n`;
   }
 
   const PER_PAGE = 8;
@@ -150,26 +192,10 @@ async function showProfit(ctx, page = 0) {
   const p = Math.min(Math.max(0, page), pages - 1);
   const slice = rows.slice(p * PER_PAGE, p * PER_PAGE + PER_PAGE);
 
-  const marginPct = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : '0.0';
-  let text =
-    `📈 <b>Profit</b>\n\n` +
-    `💵 Revenue: <b>${money(revenue)}</b>\n` +
-    `🏷 Cost: <b>${money(cost)}</b>\n` +
-    `${profit >= 0 ? '✅' : '🔻'} Profit: <b>${money(profit)}</b> (${marginPct}%)\n` +
-    `📦 Units sold: <b>${unitsSold}</b>\n`;
-
-  if (linesMissingCost) {
-    text +=
-      `\n⚠️ <b>${linesMissingCost}</b> of ${lineCount} sold line(s) have no cost recorded, ` +
-      `so profit is overstated. Set a cost on those products — it applies to future sales.\n`;
-  }
-
-  text += `\n<b>By product</b>${pages > 1 ? ` (page ${p + 1}/${pages})` : ''}\n`;
+  text += `\n<b>All-time by product</b>${pages > 1 ? ` (page ${p + 1}/${pages})` : ''}\n`;
   for (const r of slice) {
     const pct = r.revenue > 0 ? ((r.profit / r.revenue) * 100).toFixed(0) : '0';
-    text +=
-      `\n${escapeHtml(r.emoji)} <b>${escapeHtml(r.name)}</b> ×${r.qty}\n` +
-      `   ${money(r.revenue)} − ${money(r.cost)} = <b>${money(r.profit)}</b> (${pct}%)\n`;
+    text += `${escapeHtml(r.emoji)} <b>${escapeHtml(r.name)}</b> ×${r.qty}\n   ${money(r.revenue)} − ${money(r.cost)} = <b>${money(r.profit)}</b> (${pct}%)\n`;
   }
 
   const kb = new InlineKeyboard();
