@@ -89,6 +89,25 @@ router.get('/', async (req, res) => {
   });
 });
 
+// TEMP: Bulk update order item costs for profit correction
+router.post('/bulk-update-costs', async (req, res) => {
+  try {
+    const { items } = req.body; // [{ id, unitCost }]
+    if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'items array required' });
+    let updated = 0;
+    for (const { id, unitCost } of items) {
+      await prisma.orderItem.update({
+        where: { id },
+        data: { unitCost: Number(unitCost) },
+      });
+      updated++;
+    }
+    res.json({ ok: true, updated });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   const order = await prisma.order.findUnique({
     where: { id: Number(req.params.id) },
