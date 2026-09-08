@@ -2,9 +2,8 @@ import express from 'express';
 import prisma from '../../db.js';
 import config from '../../config.js';
 import { requireAuth } from '../auth.js';
-import { num } from '../../utils.js';
+import { num, escapeHtml } from '../../utils.js';
 import { sendMessageSafe } from '../../bot/delivery.js';
-import { escapeHtml } from '../../utils.js';
 
 const router = express.Router();
 router.use(requireAuth);

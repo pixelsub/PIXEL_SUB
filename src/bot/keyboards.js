@@ -100,10 +100,6 @@ export function manualPayKeyboard(order, { autoVerify = false, payId = '', idLab
   return kb;
 }
 
-// Older name kept for any remaining importer.
-export const binancePayKeyboard = manualPayKeyboard;
-
-// After an invoice is created
 export function payKeyboard(order) {
   const kb = new InlineKeyboard();
   if (order.payUrl) kb.url('💎 Pay Now', order.payUrl).row();

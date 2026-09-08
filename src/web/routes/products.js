@@ -37,6 +37,30 @@ router.get('/', async (req, res) => {
   res.json({ products: products.map(serializeProduct) });
 });
 
+// -------- Categories --------
+router.get('/meta/categories', async (req, res) => {
+  const categories = await prisma.category.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] });
+  res.json({ categories });
+});
+
+router.post('/meta/categories', async (req, res) => {
+  const b = req.body || {};
+  if (!b.name) return res.status(400).json({ error: 'name required' });
+  const category = await prisma.category.create({
+    data: { name: b.name, emoji: b.emoji || '📦', sortOrder: Number(b.sortOrder) || 0 },
+  });
+  res.json({ category });
+});
+
+router.delete('/meta/categories/:id', async (req, res) => {
+  try {
+    await prisma.category.delete({ where: { id: Number(req.params.id) } });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ error: 'Not found' });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   const product = await prisma.product.findUnique({
     where: { id: Number(req.params.id) },
@@ -105,30 +129,6 @@ router.delete('/:id', async (req, res) => {
       return res.json({ ok: true, softDeleted: true, note: 'Product has order history; deactivated instead of deleted.' });
     }
     await prisma.product.delete({ where: { id: Number(req.params.id) } });
-    res.json({ ok: true });
-  } catch {
-    res.status(404).json({ error: 'Not found' });
-  }
-});
-
-// -------- Categories --------
-router.get('/meta/categories', async (req, res) => {
-  const categories = await prisma.category.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] });
-  res.json({ categories });
-});
-
-router.post('/meta/categories', async (req, res) => {
-  const b = req.body || {};
-  if (!b.name) return res.status(400).json({ error: 'name required' });
-  const category = await prisma.category.create({
-    data: { name: b.name, emoji: b.emoji || '📦', sortOrder: Number(b.sortOrder) || 0 },
-  });
-  res.json({ category });
-});
-
-router.delete('/meta/categories/:id', async (req, res) => {
-  try {
-    await prisma.category.delete({ where: { id: Number(req.params.id) } });
     res.json({ ok: true });
   } catch {
     res.status(404).json({ error: 'Not found' });

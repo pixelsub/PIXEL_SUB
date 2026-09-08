@@ -96,13 +96,7 @@ async function showShop(ctx) {
 const qtyPrompt = new Map();
 export function clearQtyPrompt(id) { qtyPrompt.delete(String(id)); }
 
-// Checkout is quantity first, then payment. Each step is one message edit, so
-// it costs a single Telegram round trip and holds nothing in memory between
-// screens except the product id while a custom amount is being typed.
-async function showProduct(ctx, productId) {
-  return showQuantity(ctx, productId);
-}
-
+// Step 1 of checkout: quantity selection (or straight to payment if only 1).
 async function showQuantity(ctx, productId) {
   clearQtyPrompt(ctx.from.id);
   const product = await getProductWithStock(productId);
@@ -535,20 +529,6 @@ Please send the ID of the payment you made for <b>${escapeHtml(order.publicId)}<
   return true;
 }
 
-async function doManualCancel(ctx, orderId) {
-  clearTxPrompt(ctx.from.id);
-  const order = await prisma.order.findUnique({ where: { id: orderId } });
-  if (!order || order.userId !== ctx.dbUser.id) {
-    return ctx.answerCallbackQuery({ text: 'Order not found.', show_alert: true }).catch(() => {});
-  }
-  if (order.status === 'PENDING') {
-    await prisma.order.update({ where: { id: order.id }, data: { status: 'CANCELLED' } });
-    await prisma.orderEvent.create({ data: { orderId: order.id, type: 'cancelled', message: 'Cancelled by user' } });
-  }
-  await ctx.answerCallbackQuery({ text: 'Order cancelled.' }).catch(() => {});
-  await showShop(ctx);
-}
-
 async function doCheckStatus(ctx, orderId) {
   const order = await prisma.order.findUnique({ where: { id: orderId } });
   if (!order || order.userId !== ctx.dbUser.id) {
@@ -577,6 +557,7 @@ async function doCheckStatus(ctx, orderId) {
 }
 
 async function doCancel(ctx, orderId) {
+  clearTxPrompt(ctx.from.id);
   const order = await prisma.order.findUnique({ where: { id: orderId } });
   if (!order || order.userId !== ctx.dbUser.id) {
     return ctx.answerCallbackQuery({ text: 'Order not found.', show_alert: true }).catch(() => {});
@@ -683,7 +664,7 @@ export function registerHandlers(bot) {
 
   bot.callbackQuery(/^p:(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    await showProduct(ctx, Number(ctx.match[1]));
+    await showQuantity(ctx, Number(ctx.match[1]));
   });
   // Quantity chosen -> payment step. Also catches the old in-place stepper
   // buttons still sitting in customers' older chat messages.
@@ -723,7 +704,7 @@ export function registerHandlers(bot) {
     await doManualPaid(ctx, Number(ctx.match[1]));
   });
   bot.callbackQuery(/^mcancel:(\d+)$/, async (ctx) => {
-    await doManualCancel(ctx, Number(ctx.match[1]));
+    await doCancel(ctx, Number(ctx.match[1]));
   });
 
   // Legacy Binance-only callbacks. Messages already sitting in customers' chats
@@ -735,7 +716,7 @@ export function registerHandlers(bot) {
     await doManualPaid(ctx, Number(ctx.match[1]));
   });
   bot.callbackQuery(/^bincancel:(\d+)$/, async (ctx) => {
-    await doManualCancel(ctx, Number(ctx.match[1]));
+    await doCancel(ctx, Number(ctx.match[1]));
   });
 
   // Fallback for any stray text: transaction id, custom quantity, wallet
