@@ -5,6 +5,7 @@ import config from '../config.js';
 import { money, num, escapeHtml, sleep, chunk } from '../utils.js';
 import { sendMessageSafe } from './delivery.js';
 import { approveManualPayment, declineManualPayment } from '../services/orders.js';
+import { bot } from './instance.js';
 
 // In-memory per-admin conversation state (fine: only admins use it, resets on restart).
 const adminState = new Map();
@@ -476,6 +477,32 @@ async function handleAdminText(ctx) {
       parse_mode: 'HTML',
       reply_markup: new InlineKeyboard().text('➕ Add More', `a:paddstock:${st.productId}`).row().text('⬅️ Product', `a:prod:${st.productId}`),
     });
+
+    // --- Stock Update Broadcast ---
+    const p = await prisma.product.findUnique({ where: { id: st.productId } });
+    if (p && p.isActive) {
+      const users = await prisma.user.findMany({ where: { isBanned: false }, select: { telegramId: true } });
+      const msg =
+        `🔔 <b>Stock Update!</b>\n\n` +
+        `${escapeHtml(p.emoji)} <b>${escapeHtml(p.name)}</b> is back in stock — ${lines.length} new unit(s) added!\n` +
+        `💵 Price: <b>${money(num(p.price))}</b> each\n` +
+        `📦 Total in stock now: <b>${available}</b>\n\n` +
+        `Tap below to grab one before it's gone.`;
+      const buyKb = { inline_keyboard: [[{ text: `${p.emoji} Buy Now`, callback_data: `p:${p.id}`, style: 'success' }]] };
+      (async () => {
+        for (const u of users) {
+          try {
+            await bot.api.sendMessage(u.telegramId.toString(), msg, {
+              parse_mode: 'HTML',
+              reply_markup: buyKb,
+            });
+          } catch (_) {}
+          await sleep(40);
+        }
+      })().catch((e) => logger.error({ err: e.message }, 'stock broadcast failed'));
+    }
+    // --- End Broadcast ---
+
     return true;
   }
 
