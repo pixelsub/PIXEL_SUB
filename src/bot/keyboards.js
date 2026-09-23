@@ -29,8 +29,9 @@ export function shopKeyboard(products) {
       : available
         ? `📦 ${p.available}`
         : 'Out of stock';
-    const mark = available ? '' : '❌ ';
-    kb.text(`${mark}${p.emoji} ${p.name} | ${money(num(p.price))} | ${tail}`, `p:${p.id}`).row();
+    kb.text(`${p.emoji} ${p.name} | ${money(num(p.price))} | ${tail}`, `p:${p.id}`)
+      .style(available ? 'success' : 'danger')
+      .row();
   }
   kb.text('🏠 Main Menu', 'menu');
   return kb;
