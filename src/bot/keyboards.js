@@ -68,7 +68,7 @@ export function paymentKeyboard(product, qty, maxQty, opts = {}) {
   }
   // One button per manually-verified method (Binance, Bybit, …).
   for (const m of config.manualMethods) {
-    const auto = m.key === 'BINANCE' && config.binanceAutoVerify;
+    const auto = (m.key === 'BINANCE' && config.binanceAutoVerify) || (m.key === 'BYBIT' && config.bybitAutoVerify);
     const label = auto
       ? `${m.emoji} Pay ${money(total)} with ${m.label} ⚡ (Auto)`
       : `${m.emoji} Pay ${money(total)} with ${m.label}`;
