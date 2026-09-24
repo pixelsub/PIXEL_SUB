@@ -77,6 +77,17 @@ function normalizeRef(v) {
 }
 
 /**
+ * Bybit returns createdTime in some endpoints as seconds (~10 digits) and
+ * others as milliseconds (~13 digits). Always normalise to milliseconds.
+ */
+function toMs(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  // A 10-digit number is a Unix timestamp in seconds; 13-digit is already ms.
+  return n < 1e12 ? n * 1000 : n;
+}
+
+/**
  * Find the incoming Bybit internal transfer the customer says they sent,
  * identified by the transaction ID they pasted.
  *
@@ -96,7 +107,9 @@ export async function findPaymentByReference({
   createdAt,
   tolerancePct = 2,
   usedTxIds = new Set(),
-  graceMs = 30 * 60 * 1000,
+  // 2-hour grace: covers clock drift, user transferring before placing the order,
+  // and Bybit processing/confirmation delays.
+  graceMs = 2 * 60 * 60 * 1000,
 }) {
   const ref = normalizeRef(reference);
   if (ref.length < 4) return { error: 'ref_too_short' };
@@ -108,7 +121,10 @@ export async function findPaymentByReference({
 
   let rows;
   try {
-    rows = await getInternalDeposits({ limit: 50, startTime: since });
+    // Query without startTime — Bybit caps at 50 rows which is enough for any
+    // normal transaction volume. Passing startTime risks excluding a valid
+    // payment if the API interprets the unit (seconds vs ms) differently.
+    rows = await getInternalDeposits({ limit: 50 });
   } catch (e) {
     logger.warn({ err: e.message }, 'bybit: internal deposit lookup failed');
     return { error: 'api_error' };
@@ -137,7 +153,8 @@ export async function findPaymentByReference({
   if (!unclaimed.length) return { error: 'already_used' };
 
   // Must be dated at or after the order was created (with grace window).
-  const inWindow = unclaimed.filter((r) => Number(r.createdTime) >= since);
+  // toMs() normalises Bybit timestamps — API may return seconds or milliseconds.
+  const inWindow = unclaimed.filter((r) => toMs(r.createdTime) >= since);
   if (!inWindow.length) return { error: 'too_old' };
 
   // Amount must be within tolerance of what is owed.
@@ -152,6 +169,6 @@ export async function findPaymentByReference({
   }
 
   // Oldest first — settle the payment that has been waiting longest.
-  enough.sort((a, b) => Number(a.createdTime) - Number(b.createdTime));
+  enough.sort((a, b) => toMs(a.createdTime) - toMs(b.createdTime));
   return { tx: enough[0] };
 }
