@@ -78,7 +78,9 @@ const config = {
   },
 
   bybit: {
-    uid: (process.env.BYBIT_UID || '').trim(),
+    // BYBIT_UID is preferred; BYBIT_PAY_ID accepted as a fallback so existing
+    // Railway deployments work without adding a new variable.
+    uid: (process.env.BYBIT_UID || process.env.BYBIT_PAY_ID || '').trim(),
     // Read-only API credentials used to auto-verify incoming Bybit internal
     // transfers. Must have ONLY "Read" permission — never withdrawals.
     apiKey: (process.env.BYBIT_API_KEY || '').trim(),
