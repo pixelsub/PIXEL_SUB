@@ -4,6 +4,7 @@ import config from '../config.js';
 import { shortId, invoiceOrderId, num } from '../utils.js';
 import * as cryptomus from '../payments/cryptomus.js';
 import * as binance from '../payments/binance.js';
+import * as bybit from '../payments/bybit.js';
 import { sendDelivery, sendOutOfStockApology, notifyAdmins, sendMessageSafe } from '../bot/delivery.js';
 import { render } from './settings.js';
 import { money, escapeHtml } from '../utils.js';
@@ -339,6 +340,66 @@ export async function verifyBinanceByReference(order, reference) {
     network: 'Binance Pay',
   });
   logger.info({ order: order.publicId, tx: tx.transactionId }, 'binance payment verified by reference');
+  return { ok: true, tx };
+}
+
+/**
+ * Settle a Bybit order from the transaction ID the customer submitted.
+ *
+ * The customer sends USDT to our Bybit UID via Internal Transfer (off-chain,
+ * user-to-user). They then paste the Transaction ID from their Bybit app.
+ * This function looks it up via Bybit V5 API and, if everything checks out,
+ * locks the tx under a DB unique constraint and triggers delivery.
+ *
+ * Returns { ok: true, tx } or { ok: false, reason, tx? }.
+ */
+export async function verifyBybitByReference(order, reference) {
+  if (order.method !== 'BYBIT') return { ok: false, reason: 'not_bybit' };
+  if (order.status !== 'PENDING') return { ok: false, reason: 'not_pending' };
+  if (!bybit.isConfigured()) return { ok: false, reason: 'not_configured' };
+
+  const claimed = await prisma.order.findMany({
+    where: { externalTxId: { not: null } },
+    select: { externalTxId: true },
+  });
+
+  const res = await bybit.findPaymentByReference({
+    reference,
+    amount: num(order.amount),
+    createdAt: order.createdAt,
+    tolerancePct: config.bybit.tolerancePct,
+    usedTxIds: new Set(claimed.map((c) => c.externalTxId)),
+  });
+
+  if (res.error) {
+    logger.info({ order: order.publicId, reason: res.error }, 'bybit reference not accepted');
+    return { ok: false, reason: res.error, tx: res.tx, owed: res.owed };
+  }
+
+  const tx = res.tx;
+  // Claim under unique constraint — the real double-spend guard.
+  try {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { externalTxId: String(tx.txID) },
+    });
+  } catch (e) {
+    logger.warn({ err: e.message, order: order.publicId, tx: tx.txID }, 'bybit tx already claimed');
+    return { ok: false, reason: 'already_used' };
+  }
+
+  const sender = tx.fromMemberId ? ` from UID ${tx.fromMemberId}` : '';
+  await logEvent(
+    order.id,
+    'payment_received',
+    `Bybit internal ${tx.amount} USDT${sender} · tx ${tx.txID} (verified from customer reference)`
+  );
+  await markPaidAndDeliver(order.id, {
+    payer_currency: 'USDT',
+    payer_amount: String(tx.amount),
+    network: 'Bybit Internal',
+  });
+  logger.info({ order: order.publicId, tx: tx.txID }, 'bybit payment verified by reference');
   return { ok: true, tx };
 }
 

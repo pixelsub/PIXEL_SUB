@@ -77,6 +77,15 @@ const config = {
     tolerancePct: float('BINANCE_MATCH_TOLERANCE_PCT', 2),
   },
 
+  bybit: {
+    uid: (process.env.BYBIT_UID || '').trim(),
+    // Read-only API credentials used to auto-verify incoming Bybit internal
+    // transfers. Must have ONLY "Read" permission — never withdrawals.
+    apiKey: (process.env.BYBIT_API_KEY || '').trim(),
+    apiSecret: (process.env.BYBIT_API_SECRET || '').trim(),
+    tolerancePct: float('BYBIT_MATCH_TOLERANCE_PCT', 2),
+  },
+
   // Payment methods verified by hand: the customer sends funds straight to the
   // owner's exchange account, then an admin confirms it in Telegram. Adding
   // another exchange means adding one entry here — everything downstream
@@ -84,7 +93,8 @@ const config = {
   // off this list. Only entries with an id configured are offered.
   manualMethods: [
     { key: 'BINANCE', label: 'Binance', emoji: '🟡', idLabel: 'Binance ID', payId: (process.env.BINANCE_PAY_ID || '').trim() },
-    { key: 'BYBIT', label: 'Bybit', emoji: '🟠', idLabel: 'Bybit UID', payId: (process.env.BYBIT_PAY_ID || '').trim() },
+    // BYBIT_UID is the primary env var; BYBIT_PAY_ID kept for backward-compatibility.
+    { key: 'BYBIT', label: 'Bybit', emoji: '🟠', idLabel: 'Bybit UID', payId: (process.env.BYBIT_UID || process.env.BYBIT_PAY_ID || '').trim() },
   ].filter((m) => m.payId),
 
   admin: {
@@ -104,6 +114,10 @@ const config = {
 // what lets the UI advertise "(Auto)" instead of promising a human will check.
 config.binanceAutoVerify = Boolean(
   config.binance.apiKey && config.binance.apiSecret && config.binance.payId
+);
+// True when Bybit internal transfers can be auto-verified via Bybit V5 API.
+config.bybitAutoVerify = Boolean(
+  config.bybit.apiKey && config.bybit.apiSecret && config.bybit.uid
 );
 config.cryptoAutoVerify = Boolean(config.cryptomus.merchantId && config.cryptomus.paymentKey);
 

@@ -3,7 +3,7 @@ import logger from '../logger.js';
 import config from '../config.js';
 import { money, num, escapeHtml } from '../utils.js';
 import { getSetting, render } from '../services/settings.js';
-import { createOrder, createManualOrder, notifyManualPending, reconcileOrder, payWithBalance, verifyBinanceByReference } from '../services/orders.js';
+import { createOrder, createManualOrder, notifyManualPending, reconcileOrder, payWithBalance, verifyBinanceByReference, verifyBybitByReference } from '../services/orders.js';
 import { showWallet, handleWalletText, clearWalletState } from './wallet.js';
 import {
   mainMenuKeyboard,
@@ -333,7 +333,7 @@ async function doManualCheckout(ctx, method, productId, qty) {
   }
 
   const { order } = result;
-  const auto = m.key === 'BINANCE' && binanceApiReady();
+  const auto = (m.key === 'BINANCE' && binanceApiReady()) || (m.key === 'BYBIT' && bybitApiReady());
 
   if (auto) {
     // Arm the transaction-id prompt now, so the customer can just paste it
@@ -354,8 +354,7 @@ async function doManualCheckout(ctx, method, productId, qty) {
         `⚡ <b>AUTOMATIC VERIFICATION</b>\n` +
         `━━━━━━━━━━━━━━━\n\n` +
         `After paying, open the payment in your ${escapeHtml(m.label)} app, copy the ` +
-        `<b>Transaction ID</b> (or Order ID), and <b>send it here as a message</b>.\n\n` +
-        `<i>Example:</i> <code>436520167574593536</code>\n\n` +
+        `<b>Transaction ID</b>, and <b>send it here as a message</b>.\n\n` +
         `🤖 We check it with ${escapeHtml(m.label)} instantly and deliver your items in ` +
         `seconds — no waiting for staff. ✅`
       : `After sending, tap <b>"I've Paid"</b> below. Our team verifies it and your ` +
@@ -378,27 +377,23 @@ async function doManualPaid(ctx, orderId) {
   }
 
   const m = config.manualMethod(order.method);
-  const canAutoVerify = order.method === 'BINANCE' && binanceApiReady();
+  const canAutoVerify =
+    (order.method === 'BINANCE' && binanceApiReady()) ||
+    (order.method === 'BYBIT' && bybitApiReady());
 
-  // Binance can be checked against the exchange, so ask for the reference.
+  // Auto-verify methods: ask customer to paste their Transaction ID.
   if (canAutoVerify) {
     txPrompt.set(String(ctx.from.id), order.id);
     await ctx.answerCallbackQuery().catch(() => {});
+    const isBybit = order.method === 'BYBIT';
     return smartSend(
       ctx,
-      `🧾 <b>Send your Transaction ID</b>
-
-` +
-      `Order: <b>${escapeHtml(order.publicId)}</b> · ${money(num(order.amount), order.currency)}
-
-` +
-      `Open the payment in your Binance app and copy the <b>Transaction ID</b> or <b>Order ID</b>, then send it here as a message.
-
-` +
-      `<i>It looks like</i> <code>P_A22DZ34XBFS71116</code> <i>or</i> <code>436520167574593536</code>
-
-` +
-      `⚡ We'll verify it instantly and deliver your items.`,
+      `🧾 <b>Send your Transaction ID</b>\n\n` +
+      `Order: <b>${escapeHtml(order.publicId)}</b> · ${money(num(order.amount), order.currency)}\n\n` +
+      (isBybit
+        ? `Open the payment in your <b>Bybit app</b>, go to the transfer details, and copy the <b>Transaction ID</b>, then send it here as a message.`
+        : `Open the payment in your <b>Binance app</b> and copy the <b>Transaction ID</b> or <b>Order ID</b>, then send it here as a message.`) +
+      `\n\n⚡ We'll verify it instantly and deliver your items.`,
       backMenuKeyboard().text('❌ Cancel', `mcancel:${order.id}`)
     );
   }
@@ -428,6 +423,10 @@ function binanceApiReady() {
   return Boolean(config.binance.apiKey && config.binance.apiSecret && config.binance.payId);
 }
 
+function bybitApiReady() {
+  return Boolean(config.bybit.apiKey && config.bybit.apiSecret && config.bybit.uid);
+}
+
 // Handle a transaction id sent while an order is awaiting one. Returns true if consumed.
 async function handleTxReference(ctx) {
   const orderId = txPrompt.get(String(ctx.from.id));
@@ -445,28 +444,31 @@ async function handleTxReference(ctx) {
   }
 
   const reference = String(ctx.message.text || '').trim();
-  const checking = await ctx.reply('🔍 Checking your payment on Binance…').catch(() => null);
+  const methodLabel = order.method === 'BYBIT' ? 'Bybit' : 'Binance';
+  const checking = await ctx.reply(`🔍 Checking your payment on ${methodLabel}…`).catch(() => null);
 
   let res;
   try {
-    res = await verifyBinanceByReference(order, reference);
+    if (order.method === 'BYBIT') {
+      res = await verifyBybitByReference(order, reference);
+    } else {
+      res = await verifyBinanceByReference(order, reference);
+    }
   } catch (e) {
-    logger.error({ err: e.message, order: order.publicId }, 'binance reference verification crashed');
+    logger.error({ err: e.message, order: order.publicId, method: order.method }, 'tx reference verification crashed');
     res = { ok: false, reason: 'api_error' };
   }
   if (checking) await ctx.api.deleteMessage(ctx.chat.id, checking.message_id).catch(() => {});
 
   if (res.ok) {
     clearTxPrompt(ctx.from.id);
+    const amount = order.method === 'BYBIT'
+      ? `${escapeHtml(String(res.tx.amount))} USDT`
+      : `${escapeHtml(String(res.tx.amount))} ${escapeHtml(res.tx.currency)}`;
     await ctx.reply(
-      `✅ <b>Payment confirmed!</b>
-
-` +
-      `🧾 Order: <b>${escapeHtml(order.publicId)}</b>
-` +
-      `💵 Received: <b>${escapeHtml(String(res.tx.amount))} ${escapeHtml(res.tx.currency)}</b>
-
-` +
+      `✅ <b>Payment confirmed!</b>\n\n` +
+      `🧾 Order: <b>${escapeHtml(order.publicId)}</b>\n` +
+      `💵 Received: <b>${amount}</b>\n\n` +
       `Your items have been delivered above. Thank you! 🎁`,
       { parse_mode: 'HTML', reply_markup: backMenuKeyboard().text('🛍️ Shop', 'shop') }
     );
@@ -474,38 +476,29 @@ async function handleTxReference(ctx) {
   }
 
   const owed = money(num(order.amount), order.currency);
+  const appName = `${methodLabel} app`;
   const messages = {
     not_found:
-      `❌ <b>We couldn't find that transaction.</b>
-
-` +
-      `Please double-check the ID and send it again. Copy it directly from the payment details in your Binance app.
-
-` +
+      `❌ <b>We couldn't find that transaction.</b>\n\n` +
+      `Please double-check the ID and send it again. Copy it directly from the payment details in your ${appName}.\n\n` +
       `If you paid only a moment ago, wait ~30 seconds and try once more.`,
     wrong_amount:
-      `⚠️ <b>Amount doesn't match.</b>
-
-` +
-      `That transfer was <b>${escapeHtml(String(res.tx?.amount ?? '?'))} ${escapeHtml(String(res.tx?.currency ?? ''))}</b>, ` +
-      `but this order is for <b>${owed}</b>.
-
-` +
+      `⚠️ <b>Amount doesn't match.</b>\n\n` +
+      `That transfer was <b>${escapeHtml(String(res.tx?.amount ?? '?'))} USDT</b>, ` +
+      `but this order is for <b>${owed}</b>.\n\n` +
       `Send the correct transaction ID, or contact support if you believe this is an error.`,
     already_used:
-      `⚠️ <b>That transaction was already used</b> for another order.
-
-` +
+      `⚠️ <b>That transaction was already used</b> for another order.\n\n` +
       `Each payment can only be applied once. Please send the ID of the payment for <b>this</b> order.`,
     not_incoming:
-      `⚠️ That looks like a payment <b>you received</b>, not one you sent to us.
-
-Please send the ID of your payment to us.`,
+      `⚠️ That transfer doesn't appear to be a completed incoming payment.\n\n` +
+      `Please make sure the transfer is complete and send the correct Transaction ID.`,
     too_old:
-      `⚠️ <b>That transfer is older than this order.</b>
-
-Please send the ID of the payment you made for <b>${escapeHtml(order.publicId)}</b>.`,
-    ref_too_short: `⚠️ That doesn't look like a transaction ID. Please copy the full ID from your Binance app.`,
+      `⚠️ <b>That transfer is older than this order.</b>\n\n` +
+      `Please send the ID of the payment you made for <b>${escapeHtml(order.publicId)}</b>.`,
+    not_usdt:
+      `⚠️ That transfer was not in USDT. Please send USDT and submit the correct Transaction ID.`,
+    ref_too_short: `⚠️ That doesn't look like a transaction ID. Please copy the full ID from your ${appName}.`,
   };
 
   if (res.reason === 'api_error' || res.reason === 'not_configured') {
@@ -513,9 +506,7 @@ Please send the ID of the payment you made for <b>${escapeHtml(order.publicId)}<
     clearTxPrompt(ctx.from.id);
     await notifyManualPending(order);
     await ctx.reply(
-      `⏳ <b>We couldn't reach Binance right now.</b>
-
-` +
+      `⏳ <b>We couldn't reach ${methodLabel} right now.</b>\n\n` +
       `Don't worry — our team has been notified and will confirm your payment manually. You'll get your items here shortly. 🙏`,
       { parse_mode: 'HTML', reply_markup: supportKeyboard() }
     );
