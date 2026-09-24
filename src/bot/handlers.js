@@ -227,16 +227,21 @@ async function doPayWithBalance(ctx, productId, qty) {
   if (!product || !product.isActive) {
     return ctx.answerCallbackQuery({ text: 'Product unavailable.', show_alert: true }).catch(() => {});
   }
-  await ctx.answerCallbackQuery({ text: 'Processing…' }).catch(() => {});
+  // Acknowledge instantly so the button stops spinning.
+  await ctx.answerCallbackQuery({ text: '⚡ Processing your order…' }).catch(() => {});
+  // Show a "working" message right away — delivery replaces it momentarily.
+  const processing = await ctx.reply(
+    '⚡ <b>Processing your balance payment…</b>\n\nYour items will arrive here in a second!',
+    { parse_mode: 'HTML' }
+  ).catch(() => null);
+
   try {
     await payWithBalance({ user: ctx.dbUser, product, quantity: qty });
-    // Delivery message is pushed by fulfilment; confirm succinctly here.
-    await smartSend(
-      ctx,
-      `✅ <b>Paid with balance!</b>\n\nYour items have been delivered above. 🎁\nThank you!`,
-      backMenuKeyboard().text('🛍️ Shop', 'shop')
-    );
+    // sendDelivery already pushed the goods. Delete the interim "processing"
+    // bubble so the chat stays clean — the delivery message is confirmation enough.
+    if (processing) await ctx.api.deleteMessage(ctx.chat.id, processing.message_id).catch(() => {});
   } catch (e) {
+    if (processing) await ctx.api.deleteMessage(ctx.chat.id, processing.message_id).catch(() => {});
     if (e.code === 'INSUFFICIENT_BALANCE') {
       return smartSend(ctx, `😔 Not enough balance. Top up your wallet and try again.`, backMenuKeyboard().text('💳 Top Up', 'w:topup'));
     }
@@ -247,6 +252,7 @@ async function doPayWithBalance(ctx, productId, qty) {
     return smartSend(ctx, '⚠️ Something went wrong. Your balance was not charged. Please try again.', backMenuKeyboard());
   }
 }
+
 
 async function doCheckout(ctx, productId, qty) {
   const product = await getProductWithStock(productId);
