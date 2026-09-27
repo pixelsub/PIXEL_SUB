@@ -5,6 +5,7 @@ import { money, num, escapeHtml } from '../utils.js';
 import { getSetting, render } from '../services/settings.js';
 import { createOrder, createManualOrder, notifyManualPending, reconcileOrder, payWithBalance, verifyBinanceByReference, verifyBybitByReference } from '../services/orders.js';
 import { showWallet, handleWalletText, clearWalletState } from './wallet.js';
+import { setTxPrompt, getTxPrompt, clearTxPrompt } from './tx_prompt.js';
 import {
   mainMenuKeyboard,
   shopKeyboard,
@@ -344,7 +345,7 @@ async function doManualCheckout(ctx, method, productId, qty) {
   if (auto) {
     // Arm the transaction-id prompt now, so the customer can just paste it
     // after paying instead of pressing another button first.
-    txPrompt.set(String(ctx.from.id), order.id);
+    setTxPrompt(ctx.from.id, order.id);
   }
 
   const text =
@@ -369,9 +370,9 @@ async function doManualCheckout(ctx, method, productId, qty) {
   await smartSend(ctx, text, manualPayKeyboard(order, { autoVerify: auto, payId: m.payId, idLabel: m.idLabel }));
 }
 
-// Customers awaiting a transaction id: telegram id -> order id.
-const txPrompt = new Map();
-export function clearTxPrompt(id) { txPrompt.delete(String(id)); }
+// tx-prompt state lives in tx_prompt.js to avoid a circular import with wallet.js
+// (wallet.js also needs to arm the prompt, but it imports from handlers.js).
+export { clearTxPrompt };
 
 async function doManualPaid(ctx, orderId) {
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: { user: true } });
@@ -389,7 +390,7 @@ async function doManualPaid(ctx, orderId) {
 
   // Auto-verify methods: ask customer to paste their Transaction ID.
   if (canAutoVerify) {
-    txPrompt.set(String(ctx.from.id), order.id);
+    setTxPrompt(ctx.from.id, order.id);
     await ctx.answerCallbackQuery().catch(() => {});
     const isBybit = order.method === 'BYBIT';
     return smartSend(
@@ -435,7 +436,7 @@ function bybitApiReady() {
 
 // Handle a transaction id sent while an order is awaiting one. Returns true if consumed.
 async function handleTxReference(ctx) {
-  const orderId = txPrompt.get(String(ctx.from.id));
+  const orderId = getTxPrompt(ctx.from.id);
   if (!orderId) return false;
   // A slash command is never a transaction id — drop the prompt and let the
   // command run, so a customer can never get stuck in this state.

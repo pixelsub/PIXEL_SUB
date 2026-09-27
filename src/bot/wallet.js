@@ -6,6 +6,7 @@ import { money, num, escapeHtml } from '../utils.js';
 import { createTopUpOrder, createManualTopUpOrder, notifyManualPending } from '../services/orders.js';
 import { payKeyboard, manualPayKeyboard } from './keyboards.js';
 import { sendMessageSafe } from './delivery.js';
+import { setTxPrompt, clearTxPrompt } from './tx_prompt.js';
 
 const PRESETS = [5, 10, 25, 50, 100];
 
@@ -84,6 +85,10 @@ async function startManualTopUp(ctx, method, amount) {
   if (!m) {
     return ctx.answerCallbackQuery({ text: 'Payment method unavailable.', show_alert: true }).catch(() => {});
   }
+  const auto =
+    (m.key === 'BINANCE' && Boolean(config.binance.apiKey && config.binance.apiSecret && config.binance.payId)) ||
+    (m.key === 'BYBIT'   && Boolean(config.bybit.apiKey   && config.bybit.apiSecret   && config.bybit.uid));
+
   await ctx.answerCallbackQuery({ text: 'Creating order…' }).catch(() => {});
   let result;
   try {
@@ -93,18 +98,35 @@ async function startManualTopUp(ctx, method, amount) {
     return walletSend(ctx, '⚠️ Could not create the top-up order. Please try again shortly.', new InlineKeyboard().text('⬅️ Wallet', 'balance'));
   }
   const { order } = result;
-  const text =
-    `${m.emoji} <b>Top Up ${money(num(order.amount))} via ${escapeHtml(m.label)}</b>\n` +
-    `━━━━━━━━━━━━━━━\n\n` +
-    `💵 Send exactly: <b>${money(num(order.amount))}</b>\n` +
-    `🆔 ${escapeHtml(m.idLabel)}: <code>${escapeHtml(m.payId)}</code>\n` +
-    `🧾 Order: <b>${escapeHtml(order.publicId)}</b>\n\n` +
-    `After sending, tap <b>"I've Paid"</b> below. Your balance is credited once ` +
-    `our team verifies it. ⚡`;
-  const kb = new InlineKeyboard()
-    .text("✅ I've Paid — Notify Admin", `mpaid:${order.id}`).row()
-    .text('❌ Cancel', `mcancel:${order.id}`).text('⬅️ Wallet', 'balance');
-  await walletSend(ctx, text, kb);
+
+  if (auto) {
+    // Arm the tx-id prompt so the customer can paste their transaction id after paying.
+    setTxPrompt(ctx.from.id, order.id);
+    const text =
+      `${m.emoji} <b>Top Up ${money(num(order.amount))} via ${escapeHtml(m.label)} ⚡ (Auto)</b>\n` +
+      `━━━━━━━━━━━━━━━\n\n` +
+      `💵 Send exactly: <b>${money(num(order.amount))}</b>\n` +
+      `🆔 ${escapeHtml(m.idLabel)}: <code>${escapeHtml(m.payId)}</code>\n` +
+      `🧾 Order: <b>${escapeHtml(order.publicId)}</b>\n\n` +
+      `⏰ Session expires in ${config.shop.orderExpiryMin} minutes.\n\n` +
+      `━━━━━━━━━━━━━━━\n` +
+      `⚡ <b>AUTOMATIC VERIFICATION</b>\n` +
+      `━━━━━━━━━━━━━━━\n\n` +
+      `After sending, open the payment in your <b>${escapeHtml(m.label)} app</b>, copy the ` +
+      `<b>Transaction ID</b>, and <b>send it here as a message</b>.\n\n` +
+      `🤖 We verify instantly and credit your wallet — no waiting for staff. ✅`;
+    await walletSend(ctx, text, manualPayKeyboard(order, { autoVerify: true, payId: m.payId, idLabel: m.idLabel }));
+  } else {
+    const text =
+      `${m.emoji} <b>Top Up ${money(num(order.amount))} via ${escapeHtml(m.label)}</b>\n` +
+      `━━━━━━━━━━━━━━━\n\n` +
+      `💵 Send exactly: <b>${money(num(order.amount))}</b>\n` +
+      `🆔 ${escapeHtml(m.idLabel)}: <code>${escapeHtml(m.payId)}</code>\n` +
+      `🧾 Order: <b>${escapeHtml(order.publicId)}</b>\n\n` +
+      `After sending, tap <b>"I've Paid"</b> below. Your balance is credited once ` +
+      `our team verifies it. ⚡`;
+    await walletSend(ctx, text, manualPayKeyboard(order, { autoVerify: false, payId: m.payId, idLabel: m.idLabel }));
+  }
 }
 
 async function createCreditRequest(ctx, amount) {
@@ -168,8 +190,16 @@ export function registerWalletHandlers(bot) {
     if ((hasCrypto ? 1 : 0) + manual.length > 1) {
       await ctx.answerCallbackQuery().catch(() => {});
       const kb = new InlineKeyboard();
-      if (hasCrypto) kb.text('💳 Crypto (auto)', `w:tuc:${amount}`).row();
-      for (const m of manual) kb.text(`${m.emoji} ${m.label} (manual)`, `w:mt:${m.key}:${amount}`).row();
+      if (hasCrypto) kb.text('💳 Crypto ⚡ (Auto)', `w:tuc:${amount}`).row();
+      for (const m of manual) {
+        const isAuto =
+          (m.key === 'BINANCE' && config.binanceAutoVerify) ||
+          (m.key === 'BYBIT'   && config.bybitAutoVerify);
+        const label = isAuto
+          ? `${m.emoji} ${m.label} ⚡ (Auto)`
+          : `${m.emoji} ${m.label} (manual)`;
+        kb.text(label, `w:mt:${m.key}:${amount}`).row();
+      }
       kb.text('⬅️ Back', 'w:topup');
       await walletSend(ctx, `💳 <b>Top Up ${money(amount)}</b>\n\nChoose your payment method:`, kb);
     } else if (!hasCrypto && manual.length === 1) {
