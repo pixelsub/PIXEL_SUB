@@ -9,7 +9,7 @@ export function mainMenuKeyboard(isAdmin = false) {
     .text('🛍️ Shop', 'shop')
     .row()
     .text('📦 My Orders', 'orders')
-    .text('💰 Wallet', 'balance')
+    .text('💰 Balance', 'balance')
     .row()
     .text('💬 Support', 'support')
     .text('ℹ️ FAQ', 'faq');
