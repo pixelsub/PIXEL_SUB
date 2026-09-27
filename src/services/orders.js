@@ -599,7 +599,20 @@ export async function payWithBalance({ user, product, quantity }) {
   });
   await logEvent(order.id, 'payment_received', 'paid with wallet balance');
 
-  const result = await fulfillAndDeliver(order.id);
+  let result;
+  try {
+    result = await fulfillAndDeliver(order.id);
+  } catch (e) {
+    // Unexpected error during delivery (e.g. DB timeout on large orders).
+    // Refund immediately so the customer is never left with money taken and no goods.
+    logger.error({ err: e.message, order: order.publicId }, 'fulfillAndDeliver crashed — refunding balance');
+    await prisma.user.update({ where: { id: user.id }, data: { balance: { increment: total } } }).catch(() => {});
+    await logEvent(order.id, 'note', `delivery error: ${e.message} — balance refunded`).catch(() => {});
+    const err = new Error('Delivery failed');
+    err.code = 'DELIVERY_ERROR';
+    throw err;
+  }
+
   if (!result.delivered && result.reason === 'out_of_stock') {
     // Refund balance since we couldn't fulfil.
     await prisma.user.update({ where: { id: user.id }, data: { balance: { increment: total } } });
@@ -645,35 +658,39 @@ async function fulfillAndDeliver(orderId) {
       }
 
       if (item.product.usesStock) {
-        // Claim `quantity` unsold stock items, guarded against races.
-        const claimed = [];
-        let guard = 0;
-        while (claimed.length < item.quantity && guard < item.quantity * 5) {
-          guard++;
-          const candidate = await tx.stockItem.findFirst({
-            where: { productId: item.productId, isSold: false, orderItemId: null },
-            orderBy: { id: 'asc' },
-            select: { id: true, content: true },
-          });
-          if (!candidate) break;
-          const res = await tx.stockItem.updateMany({
-            where: { id: candidate.id, isSold: false },
-            data: { isSold: true, soldAt: new Date(), orderItemId: item.id },
-          });
-          if (res.count === 1) claimed.push(candidate);
+        // Batch-claim stock items: findMany + updateMany = 2 queries per item type
+        // instead of the old per-item loop (quantity × 2 queries). This prevents
+        // Prisma interactive-transaction timeouts when ordering 10-50 items.
+        const candidates = await tx.stockItem.findMany({
+          where: { productId: item.productId, isSold: false, orderItemId: null },
+          orderBy: { id: 'asc' },
+          take: item.quantity,
+          select: { id: true, content: true },
+        });
+
+        if (candidates.length < item.quantity) {
+          throw new Error('OUT_OF_STOCK_AT_DELIVERY');
         }
-        if (claimed.length < item.quantity) {
-          outOfStock = true;
-          // Roll back any partial claims for THIS item so inventory is accurate.
-          if (claimed.length) {
+
+        const ids = candidates.map((c) => c.id);
+        const res = await tx.stockItem.updateMany({
+          where: { id: { in: ids }, isSold: false },
+          data: { isSold: true, soldAt: new Date(), orderItemId: item.id },
+        });
+
+        if (res.count < item.quantity) {
+          // Race condition: another transaction claimed some items between our
+          // findMany and updateMany. Roll back any partial claims.
+          if (res.count > 0) {
             await tx.stockItem.updateMany({
-              where: { id: { in: claimed.map((c) => c.id) } },
+              where: { id: { in: ids }, orderItemId: item.id },
               data: { isSold: false, soldAt: null, orderItemId: null },
             });
           }
           throw new Error('OUT_OF_STOCK_AT_DELIVERY');
         }
-        rendered.stock = claimed;
+
+        rendered.stock = candidates;
       } else {
         rendered.deliveredContent = render(item.product.fixedContent || '', {
           order_id: order.publicId,

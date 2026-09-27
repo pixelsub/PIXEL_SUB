@@ -249,6 +249,9 @@ async function doPayWithBalance(ctx, productId, qty) {
     if (e.code === 'OUT_OF_STOCK') {
       return smartSend(ctx, `😔 Sorry, that just went out of stock. Your balance was not charged.`, backMenuKeyboard().text('⬅️ Shop', 'shop'));
     }
+    if (e.code === 'DELIVERY_ERROR') {
+      return smartSend(ctx, `⚠️ Something went wrong during delivery. Your balance has been <b>fully refunded</b>. Please try again or contact support.`, backMenuKeyboard().text('💬 Support', 'support'), { parse_mode: 'HTML' });
+    }
     logger.error({ err: e.message }, 'pay with balance failed');
     return smartSend(ctx, '⚠️ Something went wrong. Your balance was not charged. Please try again.', backMenuKeyboard());
   }
