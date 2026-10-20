@@ -5,7 +5,7 @@ import { money, num, escapeHtml } from '../utils.js';
 import { getSetting, render } from '../services/settings.js';
 import { createOrder, createManualOrder, notifyManualPending, reconcileOrder, payWithBalance, verifyBinanceByReference, verifyBybitByReference } from '../services/orders.js';
 import { showWallet, handleWalletText, clearWalletState } from './wallet.js';
-import { setTxPrompt, getTxPrompt, clearTxPrompt } from './tx_prompt.js';
+import { setTxPrompt, getTxPrompt, clearTxPrompt, qtyPrompt, clearQtyPrompt } from './tx_prompt.js';
 import {
   mainMenuKeyboard,
   shopKeyboard,
@@ -93,9 +93,6 @@ async function showShop(ctx) {
   await smartSend(ctx, intro, shopKeyboard(products));
 }
 
-// Customers typing a custom quantity: telegram id -> product id.
-const qtyPrompt = new Map();
-export function clearQtyPrompt(id) { qtyPrompt.delete(String(id)); }
 
 // Step 1 of checkout: quantity selection (or straight to payment if only 1).
 async function showQuantity(ctx, productId) {

@@ -15,3 +15,7 @@ export function getTxPrompt(userId) {
 export function clearTxPrompt(userId) {
   txPromptMap.delete(String(userId));
 }
+
+// Customers typing a custom quantity: telegram id -> product id.
+export const qtyPrompt = new Map();
+export function clearQtyPrompt(id) { qtyPrompt.delete(String(id)); }

@@ -6,7 +6,7 @@ import { money, num, escapeHtml } from '../utils.js';
 import { createTopUpOrder, createManualTopUpOrder, notifyManualPending } from '../services/orders.js';
 import { payKeyboard, manualPayKeyboard } from './keyboards.js';
 import { sendMessageSafe } from './delivery.js';
-import { setTxPrompt, clearTxPrompt } from './tx_prompt.js';
+import { setTxPrompt, clearTxPrompt, clearQtyPrompt } from './tx_prompt.js';
 
 const PRESETS = [5, 10, 25, 50, 100];
 
@@ -172,11 +172,17 @@ export function registerWalletHandlers(bot) {
   bot.callbackQuery('w:topup', async (ctx) => { await ctx.answerCallbackQuery().catch(() => {}); await showTopUp(ctx); });
   bot.callbackQuery('w:req', async (ctx) => { await ctx.answerCallbackQuery().catch(() => {}); await showRequest(ctx); });
   bot.callbackQuery('w:tucustom', async (ctx) => {
+    // Stale prompts (tx id / quantity) are checked first in the text handler
+    // and would swallow the amount the customer types.
+    clearTxPrompt(ctx.from.id);
+    clearQtyPrompt(ctx.from.id);
     custState.set(String(ctx.from.id), 'topup');
     await ctx.answerCallbackQuery().catch(() => {});
     await walletSend(ctx, '✏️ Send the <b>amount</b> you want to top up (e.g. 15):', new InlineKeyboard().text('⬅️ Wallet', 'balance'));
   });
   bot.callbackQuery('w:rqcustom', async (ctx) => {
+    clearTxPrompt(ctx.from.id);
+    clearQtyPrompt(ctx.from.id);
     custState.set(String(ctx.from.id), 'request');
     await ctx.answerCallbackQuery().catch(() => {});
     await walletSend(ctx, '✏️ Send the <b>amount</b> of credit to request (e.g. 15):', new InlineKeyboard().text('⬅️ Wallet', 'balance'));
