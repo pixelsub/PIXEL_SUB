@@ -63,8 +63,15 @@ async function showRequest(ctx) {
   await walletSend(ctx, '🙋 <b>Request Store Credit</b>\n\nChoose how much credit to request from the admin:', amountKeyboard('w:rq'));
 }
 
+// Custom amounts arrive as plain text, not a button press — there is no
+// callback query to answer then, and grammY throws synchronously for that.
+async function ack(ctx, text) {
+  if (!ctx.callbackQuery) return;
+  await ctx.answerCallbackQuery(text ? { text } : undefined).catch(() => {});
+}
+
 async function startTopUp(ctx, amount) {
-  await ctx.answerCallbackQuery({ text: 'Creating invoice…' }).catch(() => {});
+  await ack(ctx, 'Creating invoice…');
   let result;
   try {
     result = await createTopUpOrder({ user: ctx.dbUser, amount });
@@ -89,7 +96,7 @@ async function startManualTopUp(ctx, method, amount) {
     (m.key === 'BINANCE' && Boolean(config.binance.apiKey && config.binance.apiSecret && config.binance.payId)) ||
     (m.key === 'BYBIT'   && Boolean(config.bybit.apiKey   && config.bybit.apiSecret   && config.bybit.uid));
 
-  await ctx.answerCallbackQuery({ text: 'Creating order…' }).catch(() => {});
+  await ack(ctx, 'Creating order…');
   let result;
   try {
     result = await createManualTopUpOrder({ user: ctx.dbUser, amount, method: m.key });
@@ -152,6 +159,35 @@ async function createCreditRequest(ctx, amount) {
   );
 }
 
+// Preset buttons and typed custom amounts both end up here, so a custom amount
+// gets the same payment-method choice as a preset one.
+async function chooseTopUpMethod(ctx, amount) {
+  const hasCrypto = Boolean(config.cryptomus.merchantId && config.cryptomus.paymentKey);
+  const manual = config.manualMethods;
+
+  // More than one way to pay → let the customer choose.
+  if ((hasCrypto ? 1 : 0) + manual.length > 1) {
+    await ack(ctx);
+    const kb = new InlineKeyboard();
+    if (hasCrypto) kb.text('💳 Crypto ⚡ (Auto)', `w:tuc:${amount}`).row();
+    for (const m of manual) {
+      const isAuto =
+        (m.key === 'BINANCE' && config.binanceAutoVerify) ||
+        (m.key === 'BYBIT'   && config.bybitAutoVerify);
+      const label = isAuto
+        ? `${m.emoji} ${m.label} ⚡ (Auto)`
+        : `${m.emoji} ${m.label} (manual)`;
+      kb.text(label, `w:mt:${m.key}:${amount}`).row();
+    }
+    kb.text('⬅️ Back', 'w:topup');
+    await walletSend(ctx, `💳 <b>Top Up ${money(amount)}</b>\n\nChoose your payment method:`, kb);
+  } else if (!hasCrypto && manual.length === 1) {
+    await startManualTopUp(ctx, manual[0].key, amount);
+  } else {
+    await startTopUp(ctx, amount);
+  }
+}
+
 // Handle a text message when the customer is entering a custom amount.
 export async function handleWalletText(ctx) {
   const st = custState.get(String(ctx.from.id));
@@ -163,7 +199,7 @@ export async function handleWalletText(ctx) {
   }
   if (amount > 100000) { await ctx.reply('❌ That amount is too large.'); return true; }
   clearWalletState(ctx.from.id);
-  if (st === 'topup') await startTopUp(ctx, +amount.toFixed(2));
+  if (st === 'topup') await chooseTopUpMethod(ctx, +amount.toFixed(2));
   else if (st === 'request') await createCreditRequest(ctx, +amount.toFixed(2));
   return true;
 }
@@ -188,31 +224,7 @@ export function registerWalletHandlers(bot) {
     await walletSend(ctx, '✏️ Send the <b>amount</b> of credit to request (e.g. 15):', new InlineKeyboard().text('⬅️ Wallet', 'balance'));
   });
   bot.callbackQuery(/^w:tu:(\d+(?:\.\d+)?)$/, async (ctx) => {
-    const amount = parseFloat(ctx.match[1]);
-    const hasCrypto = Boolean(config.cryptomus.merchantId && config.cryptomus.paymentKey);
-    const manual = config.manualMethods;
-
-    // More than one way to pay → let the customer choose.
-    if ((hasCrypto ? 1 : 0) + manual.length > 1) {
-      await ctx.answerCallbackQuery().catch(() => {});
-      const kb = new InlineKeyboard();
-      if (hasCrypto) kb.text('💳 Crypto ⚡ (Auto)', `w:tuc:${amount}`).row();
-      for (const m of manual) {
-        const isAuto =
-          (m.key === 'BINANCE' && config.binanceAutoVerify) ||
-          (m.key === 'BYBIT'   && config.bybitAutoVerify);
-        const label = isAuto
-          ? `${m.emoji} ${m.label} ⚡ (Auto)`
-          : `${m.emoji} ${m.label} (manual)`;
-        kb.text(label, `w:mt:${m.key}:${amount}`).row();
-      }
-      kb.text('⬅️ Back', 'w:topup');
-      await walletSend(ctx, `💳 <b>Top Up ${money(amount)}</b>\n\nChoose your payment method:`, kb);
-    } else if (!hasCrypto && manual.length === 1) {
-      await startManualTopUp(ctx, manual[0].key, amount);
-    } else {
-      await startTopUp(ctx, amount);
-    }
+    await chooseTopUpMethod(ctx, parseFloat(ctx.match[1]));
   });
   // Direct crypto top-up (after method picker)
   bot.callbackQuery(/^w:tuc:(\d+(?:\.\d+)?)$/, async (ctx) => { await startTopUp(ctx, parseFloat(ctx.match[1])); });
