@@ -32,7 +32,7 @@ export async function showWallet(ctx) {
     `🧾 Total spent: <b>${money(num(u.totalSpent))}</b>\n\n` +
     `Top up with crypto and pay instantly from your balance — or request credit from our team.`;
   const kb = new InlineKeyboard()
-    .text('💳 Top Up (crypto)', 'w:topup')
+    .text('💳 Top Up Balance', 'w:topup')
     .row()
     .text('🙋 Request Credit', 'w:req')
     .row()
