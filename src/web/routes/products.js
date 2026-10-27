@@ -1,4 +1,13 @@
 import express from 'express';
+import { emojiPlain, parseEmoji, encodeEmoji } from '../../emoji.js';
+
+// Combine the emoji character and optional premium-emoji id from a request body.
+// A non-numeric id is ignored so a typo cannot corrupt the stored value.
+function emojiFromBody(b, fallback) {
+  const char = String(b.emoji ?? fallback).trim().slice(0, 8) || '🛍️';
+  const id = String(b.emojiId ?? '').trim();
+  return encodeEmoji(char, /^\d+$/.test(id) ? id : '');
+}
 import prisma from '../../db.js';
 import { requireAuth } from '../auth.js';
 import { num } from '../../utils.js';
@@ -10,7 +19,8 @@ function serializeProduct(p) {
   return {
     id: p.id,
     name: p.name,
-    emoji: p.emoji,
+    emoji: emojiPlain(p.emoji),
+    emojiId: parseEmoji(p.emoji).id,
     description: p.description,
     price: num(p.price),
     cost: num(p.cost),
@@ -76,7 +86,7 @@ router.post('/', async (req, res) => {
   const product = await prisma.product.create({
     data: {
       name: String(b.name).slice(0, 200),
-      emoji: b.emoji || '🛍️',
+      emoji: emojiFromBody(b, '🛍️'),
       description: b.description || '',
       price: Number(b.price),
       cost: Number(b.cost) || 0,
@@ -95,7 +105,7 @@ router.put('/:id', async (req, res) => {
   const b = req.body || {};
   const data = {};
   if (b.name !== undefined) data.name = String(b.name).slice(0, 200);
-  if (b.emoji !== undefined) data.emoji = b.emoji;
+  if (b.emoji !== undefined || b.emojiId !== undefined) data.emoji = emojiFromBody(b, '🛍️');
   if (b.description !== undefined) data.description = b.description;
   if (b.price !== undefined) data.price = Number(b.price);
   if (b.cost !== undefined) data.cost = Number(b.cost) || 0;

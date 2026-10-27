@@ -1,4 +1,5 @@
 import express from 'express';
+import { emojiPlain } from '../../emoji.js';
 import prisma from '../../db.js';
 import config from '../../config.js';
 import { requireAuth } from '../auth.js';
@@ -36,7 +37,7 @@ function serializeOrder(o, full = false) {
     items: (o.items || []).map((i) => ({
       id: i.id,
       productName: i.productName,
-      emoji: i.emoji,
+      emoji: emojiPlain(i.emoji),
       unitPrice: num(i.unitPrice),
       quantity: i.quantity,
       lineTotal: num(i.lineTotal),

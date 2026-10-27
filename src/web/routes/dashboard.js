@@ -1,4 +1,5 @@
 import express from 'express';
+import { emojiPlain } from '../../emoji.js';
 import prisma from '../../db.js';
 import { requireAuth } from '../auth.js';
 import { num } from '../../utils.js';
@@ -85,7 +86,7 @@ router.get('/', async (req, res) => {
   }
 
   const lowStock = lowStockProducts
-    .map((p) => ({ id: p.id, name: p.name, emoji: p.emoji, stock: p._count.stock }))
+    .map((p) => ({ id: p.id, name: p.name, emoji: emojiPlain(p.emoji), stock: p._count.stock }))
     .filter((p) => p.stock <= 3)
     .sort((a, b) => a.stock - b.stock);
 
@@ -140,7 +141,7 @@ router.get('/', async (req, res) => {
     lowStock,
     topProducts: topProductsRaw.map((t) => ({
       name: t.productName,
-      emoji: t.emoji,
+      emoji: emojiPlain(t.emoji),
       qty: t._sum.quantity || 0,
       revenue: num(t._sum.lineTotal),
     })),
@@ -156,7 +157,7 @@ router.get('/', async (req, res) => {
         username: o.user.username,
         firstName: o.user.firstName,
       },
-      summary: o.items.map((i) => `${i.emoji} ${i.productName} ×${i.quantity}`).join(', '),
+      summary: o.items.map((i) => `${emojiPlain(i.emoji)} ${i.productName} ×${i.quantity}`).join(', '),
     })),
   });
 });

@@ -1,4 +1,5 @@
 import { InlineKeyboard } from 'grammy';
+import { parseEmoji } from '../emoji.js';
 import { money, num } from '../utils.js';
 import config from '../config.js';
 
@@ -29,9 +30,12 @@ export function shopKeyboard(products) {
       : available
         ? `📦 ${p.available}`
         : 'Out of stock';
-    kb.text(`${p.emoji} ${p.name} | ${money(num(p.price))} | ${tail}`, `p:${p.id}`)
-      .style(available ? 'success' : 'danger')
-      .row();
+    // A premium emoji becomes the button's icon; the label then drops the
+    // plain character so it is not shown twice.
+    const { char, id } = parseEmoji(p.emoji);
+    kb.text(`${id ? '' : `${char} `}${p.name} | ${money(num(p.price))} | ${tail}`, `p:${p.id}`);
+    if (id) kb.icon(id);
+    kb.style(available ? 'success' : 'danger').row();
   }
   kb.text('🏠 Main Menu', 'menu');
   return kb;

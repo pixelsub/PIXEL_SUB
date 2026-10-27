@@ -1,4 +1,5 @@
 import prisma from '../db.js';
+import { emojiHtml } from '../emoji.js';
 import logger from '../logger.js';
 import config from '../config.js';
 import { money, num, escapeHtml } from '../utils.js';
@@ -109,7 +110,7 @@ async function showQuantity(ctx, productId) {
   if (!inStock) {
     await smartSend(
       ctx,
-      `${escapeHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n\n😔 This item is currently out of stock. Please check back soon!`,
+      `${emojiHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n\n😔 This item is currently out of stock. Please check back soon!`,
       backMenuKeyboard().text('⬅️ Back to Shop', 'shop')
     );
     return;
@@ -123,7 +124,7 @@ async function showQuantity(ctx, productId) {
     : '♾️ <b>Always available</b>';
   const descBlock = product.description ? `\n\n${escapeHtml(product.description)}` : '';
   const text =
-    `${escapeHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n` +
+    `${emojiHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n` +
     `💵 <b>Price:</b> ${money(num(product.price))} each\n` +
     `${stockLine}${descBlock}\n\n` +
     `🧮 <b>How many do you want?</b>`;
@@ -144,7 +145,7 @@ async function showPayment(ctx, productId, qty) {
   if (maxQty < 1) {
     await smartSend(
       ctx,
-      `${escapeHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n\n😔 This item is currently out of stock. Please check back soon!`,
+      `${emojiHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n\n😔 This item is currently out of stock. Please check back soon!`,
       backMenuKeyboard().text('⬅️ Back to Shop', 'shop')
     );
     return;
@@ -157,7 +158,7 @@ async function showPayment(ctx, productId, qty) {
   // and where a customer checks what they are actually buying.
   const desc = product.description ? `\n${escapeHtml(product.description)}\n` : '';
   const text =
-    `${escapeHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n` +
+    `${emojiHtml(product.emoji)} <b>${escapeHtml(product.name)}</b>\n` +
     `━━━━━━━━━━━━━━━\n${desc}\n` +
     `🔢 <b>Quantity:</b> ${qty}\n` +
     `💵 <b>Price:</b> ${money(num(product.price))} each\n` +
@@ -180,7 +181,7 @@ async function askCustomQty(ctx, productId) {
   await smartSend(
     ctx,
     `✏️ <b>How many do you want?</b>\n\n` +
-      `${escapeHtml(product.emoji)} ${escapeHtml(product.name)} — ${money(num(product.price))} each\n\n` +
+      `${emojiHtml(product.emoji)} ${escapeHtml(product.name)} — ${money(num(product.price))} each\n\n` +
       `Send a number between <b>1</b> and <b>${maxQty}</b> as a message (e.g. <code>12</code>).`,
     qtyPromptKeyboard(productId)
   );
@@ -287,7 +288,7 @@ async function doCheckout(ctx, productId, qty) {
     `💎 <b>Pay with Crypto ⚡ (Auto)</b>\n` +
     `━━━━━━━━━━━━━━━\n\n` +
     `🧾 Order: <b>${escapeHtml(order.publicId)}</b>\n` +
-    `${escapeHtml(product.emoji)} ${escapeHtml(product.name)} ×${qty}\n` +
+    `${emojiHtml(product.emoji)} ${escapeHtml(product.name)} ×${qty}\n` +
     `💵 <b>Amount:</b> ${money(num(order.amount), order.currency)}\n\n` +
     `💎 Tap <b>Pay Now</b> to pay with crypto (USDT, BTC, ETH, TRX & more).
 
@@ -590,7 +591,7 @@ async function showOrderDetail(ctx, orderId) {
   }
 
   const lines = order.items
-    .map((i) => `${escapeHtml(i.emoji)} ${escapeHtml(i.productName)} ×${i.quantity} — ${money(num(i.lineTotal), order.currency)}`)
+    .map((i) => `${emojiHtml(i.emoji)} ${escapeHtml(i.productName)} ×${i.quantity} — ${money(num(i.lineTotal), order.currency)}`)
     .join('\n');
 
   let deliveredBlock = '';

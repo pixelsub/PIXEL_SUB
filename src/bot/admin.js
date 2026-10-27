@@ -1,4 +1,5 @@
 import { InlineKeyboard } from 'grammy';
+import { emojiHtml, emojiPlain, emojiFromMessage } from '../emoji.js';
 import prisma from '../db.js';
 import logger from '../logger.js';
 import config from '../config.js';
@@ -171,7 +172,7 @@ async function showProfit(ctx, page = 0) {
     text += `\n<b>Today by product</b>\n`;
     for (const r of todayRows) {
       const pct = r.revenue > 0 ? ((r.profit / r.revenue) * 100).toFixed(0) : '0';
-      text += `${escapeHtml(r.emoji)} ${escapeHtml(r.name)} ×${r.qty}  ${money(r.revenue)} − ${money(r.cost)} = <b>${money(r.profit)}</b> (${pct}%)\n`;
+      text += `${emojiHtml(r.emoji)} ${escapeHtml(r.name)} ×${r.qty}  ${money(r.revenue)} − ${money(r.cost)} = <b>${money(r.profit)}</b> (${pct}%)\n`;
     }
   }
 
@@ -196,7 +197,7 @@ async function showProfit(ctx, page = 0) {
   text += `\n<b>All-time by product</b>${pages > 1 ? ` (page ${p + 1}/${pages})` : ''}\n`;
   for (const r of slice) {
     const pct = r.revenue > 0 ? ((r.profit / r.revenue) * 100).toFixed(0) : '0';
-    text += `${escapeHtml(r.emoji)} <b>${escapeHtml(r.name)}</b> ×${r.qty}\n   ${money(r.revenue)} − ${money(r.cost)} = <b>${money(r.profit)}</b> (${pct}%)\n`;
+    text += `${emojiHtml(r.emoji)} <b>${escapeHtml(r.name)}</b> ×${r.qty}\n   ${money(r.revenue)} − ${money(r.cost)} = <b>${money(r.profit)}</b> (${pct}%)\n`;
   }
 
   const kb = new InlineKeyboard();
@@ -221,7 +222,7 @@ async function listProducts(ctx) {
   for (const p of products) {
     const stock = p.usesStock ? `📦${p._count.stock}` : '♾️';
     const vis = p.isActive ? '' : '🚫';
-    kb.text(`${vis}${p.emoji} ${p.name} · ${money(num(p.price))} · ${stock}`, `a:prod:${p.id}`).row();
+    kb.text(`${vis}${emojiPlain(p.emoji)} ${p.name} · ${money(num(p.price))} · ${stock}`, `a:prod:${p.id}`).row();
   }
   kb.text('➕ Add Product', 'a:pnew').row().text('⬅️ Back', 'a:menu');
   const text = products.length
@@ -246,7 +247,7 @@ async function showProduct(ctx, id) {
     : `📈 Margin: <i>set a cost to track profit</i>\n`;
 
   const text =
-    `${escapeHtml(p.emoji)} <b>${escapeHtml(p.name)}</b>\n\n` +
+    `${emojiHtml(p.emoji)} <b>${escapeHtml(p.name)}</b>\n\n` +
     `💵 Price: <b>${money(price)}</b>\n` +
     `🏷 Cost: <b>${cost > 0 ? money(cost) : '—'}</b>\n` +
     marginLine +
@@ -257,7 +258,7 @@ async function showProduct(ctx, id) {
   const kb = new InlineKeyboard();
   if (p.usesStock) kb.text('📦 View Stock', `a:pstock:${p.id}`).text('➕ Add Stock', `a:paddstock:${p.id}`).row();
   kb.text('💵 Edit Price', `a:pprice:${p.id}`).text('🏷 Edit Cost', `a:pcost:${p.id}`).row();
-  kb.text(p.isActive ? '🚫 Hide' : '✅ Show', `a:ptoggle:${p.id}`).row();
+  kb.text('🎨 Edit Emoji', `a:pemoji:${p.id}`).text(p.isActive ? '🚫 Hide' : '✅ Show', `a:ptoggle:${p.id}`).row();
   kb.text('🗑 Delete', `a:pdel:${p.id}`).row();
   kb.text('⬅️ Products', 'a:products');
   await adminSend(ctx, text, kb);
@@ -298,7 +299,7 @@ async function confirmDelete(ctx, id) {
   // Hiding keeps it sellable-later; only worth offering if it's still visible.
   if (p.isActive) kb.text('👁 Just hide it instead', `a:ptoggle:${id}`);
 
-  await adminSend(ctx, `⚠️ <b>Delete ${escapeHtml(p.emoji)} ${escapeHtml(p.name)}?</b>${impact}`, kb);
+  await adminSend(ctx, `⚠️ <b>Delete ${emojiHtml(p.emoji)} ${escapeHtml(p.name)}?</b>${impact}`, kb);
 }
 
 async function doDelete(ctx, id) {
@@ -362,7 +363,14 @@ async function startEditPrice(ctx, id) {
   const p = await prisma.product.findUnique({ where: { id } });
   if (!p) return;
   setState(ctx.from.id, { action: 'edit_price', productId: id });
-  await adminSend(ctx, `💵 Send the <b>new price</b> for ${escapeHtml(p.emoji)} ${escapeHtml(p.name)} (current ${money(num(p.price))}):`, cancelKb());
+  await adminSend(ctx, `💵 Send the <b>new price</b> for ${emojiHtml(p.emoji)} ${escapeHtml(p.name)} (current ${money(num(p.price))}):`, cancelKb());
+}
+
+async function startEditEmoji(ctx, id) {
+  const p = await prisma.product.findUnique({ where: { id } });
+  if (!p) return;
+  setState(ctx.from.id, { action: 'edit_emoji', productId: id });
+  await adminSend(ctx, `🎨 Send the <b>new emoji</b> for ${emojiHtml(p.emoji)} ${escapeHtml(p.name)}.\n\nPremium (custom) emoji are supported.`, cancelKb());
 }
 
 async function startEditCost(ctx, id) {
@@ -371,7 +379,7 @@ async function startEditCost(ctx, id) {
   setState(ctx.from.id, { action: 'edit_cost', productId: id });
   await adminSend(
     ctx,
-    `🏷 Send your <b>cost per unit</b> for ${escapeHtml(p.emoji)} ${escapeHtml(p.name)}\n` +
+    `🏷 Send your <b>cost per unit</b> for ${emojiHtml(p.emoji)} ${escapeHtml(p.name)}\n` +
       `(currently ${num(p.cost) > 0 ? money(num(p.cost)) : 'not set'}, selling at ${money(num(p.price))}).\n\n` +
       `This is what the item costs <i>you</i> — customers never see it. Send <code>0</code> to clear.`,
     cancelKb()
@@ -402,7 +410,7 @@ async function handleAdminText(ctx) {
       st.draft.name = text.slice(0, 200); st.step = 'emoji';
       await ctx.reply('Step 2/4 — Send an <b>emoji</b> for it (or send <code>-</code> to skip):', { parse_mode: 'HTML', reply_markup: cancelKb() });
     } else if (st.step === 'emoji') {
-      st.draft.emoji = text === '-' ? '🛍️' : text.trim().slice(0, 8); st.step = 'price';
+      st.draft.emoji = emojiFromMessage(ctx.message) || (text === '-' ? '🛍️' : text.trim().slice(0, 8)); st.step = 'price';
       await ctx.reply(
         'Step 3/4 — Send the <b>price</b>, and optionally <b>your cost</b> after a space.\n\n' +
         '<code>8.50</code> — price only\n' +
@@ -432,13 +440,23 @@ async function handleAdminText(ctx) {
         ? `📈 Margin: <b>${money(num(p.price) - c)}</b> per unit`
         : '⚠️ No cost set — this product will report 100% profit until you add one.';
       await ctx.reply(
-        `✅ Created <b>${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</b> at ${money(num(p.price))}.\n` +
+        `✅ Created <b>${emojiHtml(p.emoji)} ${escapeHtml(p.name)}</b> at ${money(num(p.price))}.\n` +
         `${marginLine}\n\nNow add stock so customers can buy it.`,
         {
         parse_mode: 'HTML',
         reply_markup: new InlineKeyboard().text('➕ Add Stock', `a:paddstock:${p.id}`).row().text('🏷️ Products', 'a:products'),
       });
     }
+    return true;
+  }
+
+  if (st.action === 'edit_emoji') {
+    // A premium emoji is saved with its id; plain text is saved as before.
+    const value = emojiFromMessage(ctx.message) || text.trim().slice(0, 8);
+    if (!value) { await ctx.reply('❌ Send an emoji (premium emoji work too).'); return true; }
+    await prisma.product.update({ where: { id: st.productId }, data: { emoji: value } });
+    clearState(ctx.from.id);
+    await ctx.reply(`✅ Emoji updated: ${emojiHtml(value)}`, { parse_mode: 'HTML', reply_markup: new InlineKeyboard().text('⬅️ Product', `a:prod:${st.productId}`) });
     return true;
   }
 
@@ -484,11 +502,11 @@ async function handleAdminText(ctx) {
       const users = await prisma.user.findMany({ where: { isBanned: false }, select: { telegramId: true } });
       const msg =
         `🔔 <b>Stock Update!</b>\n\n` +
-        `${escapeHtml(p.emoji)} <b>${escapeHtml(p.name)}</b> is back in stock — ${lines.length} new unit(s) added!\n` +
+        `${emojiHtml(p.emoji)} <b>${escapeHtml(p.name)}</b> is back in stock — ${lines.length} new unit(s) added!\n` +
         `💵 Price: <b>${money(num(p.price))}</b> each\n` +
         `📦 Total in stock now: <b>${available}</b>\n\n` +
         `Tap below to grab one before it's gone.`;
-      const buyKb = { inline_keyboard: [[{ text: `${p.emoji} Buy Now`, callback_data: `p:${p.id}`, style: 'success' }]] };
+      const buyKb = { inline_keyboard: [[{ text: `${emojiPlain(p.emoji)} Buy Now`, callback_data: `p:${p.id}`, style: 'success' }]] };
       (async () => {
         for (const u of users) {
           try {
@@ -785,7 +803,7 @@ async function showOrder(ctx, id) {
 
   const lines = o.items.map((i) => {
     const gone = i.productId === null ? ' <i>(product deleted)</i>' : '';
-    return `${i.emoji} ${escapeHtml(i.productName)} ×${i.quantity} @ ${money(num(i.unitPrice), o.currency)} — <b>${money(num(i.lineTotal), o.currency)}</b>${gone}`;
+    return `${emojiHtml(i.emoji)} ${escapeHtml(i.productName)} ×${i.quantity} @ ${money(num(i.unitPrice), o.currency)} — <b>${money(num(i.lineTotal), o.currency)}</b>${gone}`;
   });
   const codeCount = o.items.reduce((n, i) => n + i.stock.length, 0);
 
@@ -829,7 +847,7 @@ async function showOrderDelivered(ctx, id) {
   let truncated = false;
   for (const i of o.items) {
     if (!i.stock.length) continue;
-    body += `\n<b>${escapeHtml(i.emoji)} ${escapeHtml(i.productName)}</b>\n`;
+    body += `\n<b>${emojiHtml(i.emoji)} ${escapeHtml(i.productName)}</b>\n`;
     for (const [n, s] of i.stock.entries()) {
       const row = `${n + 1}. <code>${escapeHtml(s.content)}</code>\n`;
       // Telegram hard-limits messages at 4096 chars; stop cleanly on a whole row.
@@ -896,7 +914,8 @@ export function registerAdminHandlers(bot) {
     [/^a:prod:(\d+)$/, (ctx) => showProduct(ctx, Number(ctx.match[1]))],
     [/^a:ptoggle:(\d+)$/, (ctx) => toggleProduct(ctx, Number(ctx.match[1]))],
     [/^a:pprice:(\d+)$/, (ctx) => startEditPrice(ctx, Number(ctx.match[1]))],
-    [/^a:pcost:(\d+)$/, (ctx) => startEditCost(ctx, Number(ctx.match[1]))],
+    [/^a:pemoji:(\d+)$/, (ctx) => startEditEmoji(ctx, Number(ctx.match[1]))],
+    [/^a:pcost:(\d+)$/,(ctx) => startEditCost(ctx, Number(ctx.match[1]))],
     [/^a:profit$/, (ctx) => showProfit(ctx, 0)],
     [/^a:profit:(\d+)$/, (ctx) => showProfit(ctx, Number(ctx.match[1]))],
     [/^a:pdel:(\d+)$/, (ctx) => confirmDelete(ctx, Number(ctx.match[1]))],

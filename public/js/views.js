@@ -217,6 +217,7 @@ const Views = (() => {
     const f = (id) => document.getElementById(id);
     const body = el('div', { class: 'form-grid' }, [
       field('Emoji', `<input id="p-emoji" value="${esc(p?.emoji || '🛍️')}" maxlength="8" />`),
+      field('Premium emoji ID (optional)', `<input id="p-emoji-id" inputmode="numeric" placeholder="e.g. 5321197740800120767" value="${esc(p?.emojiId || '')}" /><span class="hint">Shown in the Telegram bot instead of the emoji. Send the premium emoji to the bot as admin to get its ID. Leave empty for a normal emoji.</span>`),
       field('Price (USD)', `<input id="p-price" type="number" step="0.01" min="0" value="${p?.price ?? ''}" />`),
       field('Your cost (USD)', `<input id="p-cost" type="number" step="0.01" min="0" value="${p?.cost ?? 0}" /><span class="hint">What this item costs you. Used for profit only — never shown to customers.</span>`),
       field('Name', `<input id="p-name" value="${esc(p?.name || '')}" />`, true),
@@ -229,6 +230,7 @@ const Views = (() => {
     save.onclick = async () => {
       const payload = {
         name: f('p-name').value.trim(), emoji: f('p-emoji').value.trim() || '🛍️',
+        emojiId: f('p-emoji-id').value.trim(),
         description: f('p-desc').value, price: parseFloat(f('p-price').value),
         cost: parseFloat(f('p-cost').value) || 0,
         usesStock: f('p-stock').checked, fixedContent: f('p-fixed').value,

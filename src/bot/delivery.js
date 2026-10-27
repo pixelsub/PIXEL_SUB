@@ -1,4 +1,5 @@
 import { bot } from './instance.js';
+import { emojiHtml } from '../emoji.js';
 import config from '../config.js';
 import logger from '../logger.js';
 import { escapeHtml, money, num } from '../utils.js';
@@ -12,7 +13,7 @@ export async function sendDelivery(order) {
 
   const blocks = [];
   for (const item of order.items) {
-    const lines = [`<b>${escapeHtml(item.emoji)} ${escapeHtml(item.productName)}</b> ×${item.quantity}`];
+    const lines = [`<b>${emojiHtml(item.emoji)} ${escapeHtml(item.productName)}</b> ×${item.quantity}`];
     if (item.stock && item.stock.length) {
       for (const s of item.stock) {
         lines.push(`<code>${escapeHtml(s.content)}</code>`);

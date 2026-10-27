@@ -1,4 +1,5 @@
 import express from 'express';
+import { emojiPlain } from '../../emoji.js';
 import prisma from '../../db.js';
 import config from '../../config.js';
 import { requireAuth } from '../auth.js';
@@ -69,7 +70,7 @@ router.get('/:id', async (req, res) => {
       amount: num(o.amount),
       currency: o.currency,
       createdAt: o.createdAt,
-      summary: o.items.map((i) => `${i.emoji} ${i.productName} ×${i.quantity}`).join(', '),
+      summary: o.items.map((i) => `${emojiPlain(i.emoji)} ${i.productName} ×${i.quantity}`).join(', '),
     })),
   });
 });
