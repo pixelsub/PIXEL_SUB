@@ -1,5 +1,5 @@
 import { InlineKeyboard } from 'grammy';
-import { emojiHtml, emojiPlain, emojiFromMessage } from '../emoji.js';
+import { emojiHtml, emojiPlain, emojiFromMessage, UI } from '../emoji.js';
 import prisma from '../db.js';
 import logger from '../logger.js';
 import config from '../config.js';
@@ -294,7 +294,7 @@ async function confirmDelete(ctx, id) {
 
   const kb = new InlineKeyboard()
     .text('🗑 Yes, delete it', `a:pdelyes:${id}`)
-    .text('❌ Cancel', `a:prod:${id}`)
+    .text('Cancel', `a:prod:${id}`).icon(UI.cross)
     .row();
   // Hiding keeps it sellable-later; only worth offering if it's still visible.
   if (p.isActive) kb.text('👁 Just hide it instead', `a:ptoggle:${id}`);
@@ -352,7 +352,7 @@ async function clearStock(ctx, id) {
 }
 
 // ============================ INPUT FLOWS ============================
-function cancelKb() { return new InlineKeyboard().text('❌ Cancel', 'a:menu'); }
+function cancelKb() { return new InlineKeyboard().text('Cancel', 'a:menu').icon(UI.cross); }
 
 async function startAddProduct(ctx) {
   setState(ctx.from.id, { action: 'add_product', step: 'name', draft: {} });
@@ -646,7 +646,7 @@ async function showCredit(ctx, id) {
     `💰 Amount: <b>${money(num(r.amount))}</b>\n` +
     `Status: <b>${r.status}</b>`;
   const kb = new InlineKeyboard();
-  if (r.status === 'PENDING') kb.text('✅ Approve', `a:crok:${r.id}`).text('❌ Decline', `a:crno:${r.id}`).row();
+  if (r.status === 'PENDING') kb.text('Approve', `a:crok:${r.id}`).icon(UI.check).text('Decline', `a:crno:${r.id}`).icon(UI.cross).row();
   kb.text('⬅️ Requests', 'a:credits');
   await adminSend(ctx, text, kb);
 }
@@ -827,7 +827,7 @@ async function showOrder(ctx, id) {
   const kb = new InlineKeyboard();
   if (codeCount) kb.text(`🔐 View delivered (${codeCount})`, `a:oitem:${o.id}`).row();
   if (config.manualMethodKeys.has(o.method) && !['DELIVERED', 'CANCELLED', 'REFUNDED'].includes(o.status)) {
-    kb.text('✅ Approve payment', `a:obinok:${o.id}`).text('❌ Decline', `a:obinno:${o.id}`).row();
+    kb.text('Approve payment', `a:obinok:${o.id}`).icon(UI.check).text('Decline', `a:obinno:${o.id}`).icon(UI.cross).row();
   }
   if (['PAID', 'DELIVERED'].includes(o.status)) kb.text('📤 Re-deliver', `a:oredeliver:${o.id}`).row();
   kb.text(`🕓 Timeline (${o.events.length})`, `a:oev:${o.id}`).text('👤 Customer', `a:user:${o.userId}`).row();

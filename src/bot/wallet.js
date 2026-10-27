@@ -1,4 +1,5 @@
 import { InlineKeyboard } from 'grammy';
+import { UI } from '../emoji.js';
 import prisma from '../db.js';
 import config from '../config.js';
 import logger from '../logger.js';
@@ -32,7 +33,7 @@ export async function showWallet(ctx) {
     `🧾 Total spent: <b>${money(num(u.totalSpent))}</b>\n\n` +
     `Top up with crypto and pay instantly from your balance — or request credit from our team.`;
   const kb = new InlineKeyboard()
-    .text('💳 Top Up Balance', 'w:topup')
+    .text('Top Up Balance', 'w:topup').icon(UI.card)
     .row()
     .text('🙋 Request Credit', 'w:req')
     .row()
@@ -148,7 +149,7 @@ async function createCreditRequest(ctx, amount) {
     `👤 ${escapeHtml(name)} (<code>${u.telegramId}</code>)\n` +
     `💰 Amount: <b>${money(amount)}</b>\n` +
     `🆔 Request #${req.id}`;
-  const kb = new InlineKeyboard().text('✅ Approve', `a:crok:${req.id}`).text('❌ Decline', `a:crno:${req.id}`);
+  const kb = new InlineKeyboard().text('Approve', `a:crok:${req.id}`).icon(UI.check).text('Decline', `a:crno:${req.id}`).icon(UI.cross);
   for (const id of config.telegram.adminIds) {
     await sendMessageSafe(id, adminText, { reply_markup: kb });
   }
@@ -169,15 +170,19 @@ async function chooseTopUpMethod(ctx, amount) {
   if ((hasCrypto ? 1 : 0) + manual.length > 1) {
     await ack(ctx);
     const kb = new InlineKeyboard();
-    if (hasCrypto) kb.text('💳 Crypto ⚡ (Auto)', `w:tuc:${amount}`).row();
+    if (hasCrypto) kb.text('Crypto ⚡ (Auto)', `w:tuc:${amount}`).icon(UI.usdt).row();
     for (const m of manual) {
       const isAuto =
         (m.key === 'BINANCE' && config.binanceAutoVerify) ||
         (m.key === 'BYBIT'   && config.bybitAutoVerify);
+      const iconId = UI.method[m.key];
+      const lead = iconId ? '' : `${m.emoji} `;
       const label = isAuto
-        ? `${m.emoji} ${m.label} ⚡ (Auto)`
-        : `${m.emoji} ${m.label} (manual)`;
-      kb.text(label, `w:mt:${m.key}:${amount}`).row();
+        ? `${lead}${m.label} ⚡ (Auto)`
+        : `${lead}${m.label} (manual)`;
+      kb.text(label, `w:mt:${m.key}:${amount}`);
+      if (iconId) kb.icon(iconId);
+      kb.row();
     }
     kb.text('⬅️ Back', 'w:topup');
     await walletSend(ctx, `💳 <b>Top Up ${money(amount)}</b>\n\nChoose your payment method:`, kb);

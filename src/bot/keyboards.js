@@ -1,5 +1,5 @@
 import { InlineKeyboard } from 'grammy';
-import { parseEmoji } from '../emoji.js';
+import { parseEmoji, UI } from '../emoji.js';
 import { money, num } from '../utils.js';
 import config from '../config.js';
 
@@ -7,14 +7,14 @@ const cryptomusConfigured = () => Boolean(config.cryptomus.merchantId && config.
 
 export function mainMenuKeyboard(isAdmin = false) {
   const kb = new InlineKeyboard()
-    .text('🛍️ Shop', 'shop')
+    .text('Shop', 'shop').icon(UI.shop)
     .row()
-    .text('📦 My Orders', 'orders')
-    .text('💰 Balance', 'balance')
+    .text('My Orders', 'orders').icon(UI.box)
+    .text('Balance', 'balance').icon(UI.wallet)
     .row()
-    .text('💬 Support', 'support')
+    .text('Support', 'support').icon(UI.support)
     .text('ℹ️ FAQ', 'faq');
-  if (isAdmin) kb.row().text('🛠️ Admin Panel', 'a:menu');
+  if (isAdmin) kb.row().text('Admin Panel', 'a:menu').icon(UI.shield);
   return kb;
 }
 
@@ -68,19 +68,24 @@ export function paymentKeyboard(product, qty, maxQty, opts = {}) {
   // Only show Crypto when Cryptomus is fully configured. "(Auto)" is not
   // decoration — it appears only where payment truly confirms itself.
   if (cryptomusConfigured()) {
-    kb.text(`💎 Pay ${money(total)} with Crypto ⚡ (Auto)`, `checkout:${product.id}:${qty}`).row();
+    kb.text(`Pay ${money(total)} with Crypto ⚡ (Auto)`, `checkout:${product.id}:${qty}`).icon(UI.usdt).row();
   }
   // One button per manually-verified method (Binance, Bybit, …).
   for (const m of config.manualMethods) {
     const auto = (m.key === 'BINANCE' && config.binanceAutoVerify) || (m.key === 'BYBIT' && config.bybitAutoVerify);
+    // A premium icon replaces the plain emoji in the label.
+    const iconId = UI.method[m.key];
+    const lead = iconId ? '' : `${m.emoji} `;
     const label = auto
-      ? `${m.emoji} Pay ${money(total)} with ${m.label} ⚡ (Auto)`
-      : `${m.emoji} Pay ${money(total)} with ${m.label}`;
-    kb.text(label, `mchk:${m.key}:${product.id}:${qty}`).row();
+      ? `${lead}Pay ${money(total)} with ${m.label} ⚡ (Auto)`
+      : `${lead}Pay ${money(total)} with ${m.label}`;
+    kb.text(label, `mchk:${m.key}:${product.id}:${qty}`);
+    if (iconId) kb.icon(iconId);
+    kb.row();
   }
   // Offer wallet payment when the customer has enough balance.
   if (opts.balance !== undefined && opts.balance >= total) {
-    kb.text(`💰 Pay ${money(total)} with Balance`, `paybal:${product.id}:${qty}`).row();
+    kb.text(`Pay ${money(total)} with Balance`, `paybal:${product.id}:${qty}`).icon(UI.wallet).row();
   }
   // The quantity control lives here rather than on its own screen, so the
   // common case (one unit) costs no extra tap. Doubles as a readout.
@@ -99,9 +104,9 @@ export function manualPayKeyboard(order, { autoVerify = false, payId = '', idLab
     // The prompt is already armed — this only re-arms it if they navigated away.
     kb.text('🧾 Paste Transaction ID', `mpaid:${order.id}`).row();
   } else {
-    kb.text("✅ I've Paid — Notify Admin", `mpaid:${order.id}`).row();
+    kb.text("I've Paid — Notify Admin", `mpaid:${order.id}`).icon(UI.check).row();
   }
-  kb.text('❌ Cancel Order', `mcancel:${order.id}`).text('🏠 Menu', 'menu');
+  kb.text('Cancel Order', `mcancel:${order.id}`).icon(UI.cross).text('🏠 Menu', 'menu');
   return kb;
 }
 
@@ -109,7 +114,7 @@ export function payKeyboard(order) {
   const kb = new InlineKeyboard();
   if (order.payUrl) kb.url('💎 Pay Now', order.payUrl).row();
   kb.text('🔄 Check Payment Status', `check:${order.id}`).row();
-  kb.text('❌ Cancel Order', `cancel:${order.id}`).text('🏠 Menu', 'menu');
+  kb.text('Cancel Order', `cancel:${order.id}`).icon(UI.cross).text('🏠 Menu', 'menu');
   return kb;
 }
 
@@ -149,7 +154,7 @@ export function supportKeyboard() {
     kb.url('💬 Chat with Admin', `https://t.me/${config.telegram.supportUsername}`).row();
   }
   if (config.telegram.whatsapp) {
-    kb.url('📱 WhatsApp Admin', `https://wa.me/${config.telegram.whatsapp}`).row();
+    kb.url('WhatsApp Admin', `https://wa.me/${config.telegram.whatsapp}`).icon(UI.phone).row();
   }
   kb.text('🏠 Main Menu', 'menu');
   return kb;

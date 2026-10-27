@@ -1,5 +1,5 @@
 import prisma from '../db.js';
-import { emojiHtml } from '../emoji.js';
+import { emojiHtml, UI } from '../emoji.js';
 import logger from '../logger.js';
 import config from '../config.js';
 import { money, num, escapeHtml } from '../utils.js';
@@ -402,7 +402,7 @@ async function doManualPaid(ctx, orderId) {
         ? `Open the payment in your <b>Bybit app</b>, go to the transfer details, and copy the <b>Transaction ID</b>, then send it here as a message.`
         : `Open the payment in your <b>Binance app</b> and copy the <b>Transaction ID</b> or <b>Order ID</b>, then send it here as a message.`) +
       `\n\n⚡ We'll verify it instantly and deliver your items.`,
-      backMenuKeyboard().text('❌ Cancel', `mcancel:${order.id}`)
+      backMenuKeyboard().text('Cancel', `mcancel:${order.id}`).icon(UI.cross)
     );
   }
 
