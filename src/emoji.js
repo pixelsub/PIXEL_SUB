@@ -58,3 +58,41 @@ export function emojiFromMessage(message) {
   if (!ent) return null;
   return encodeEmoji(text.substr(ent.offset, ent.length) || '🛍️', ent.custom_emoji_id);
 }
+
+// ---- Automatic premium emoji in message text -------------------------------
+// Plain emoji that appear in message text are swapped for their premium twin.
+// Anything not listed stays as is.
+const TEXT_MAP = {
+  '🛍': UI.shop, '⚡': UI.bolt, '🛡': UI.shield, '💳': UI.card, '📱': UI.phone,
+  '🔐': UI.lock, '📦': UI.box, '🔥': UI.fire, '💵': UI.dollar, '👛': UI.wallet,
+  '✅': UI.check, '❌': UI.cross, '⭐': UI.star, '🌟': UI.star,
+};
+const TEXT_RE = new RegExp(`(${Object.keys(TEXT_MAP).join('|')})\\uFE0F?`, 'gu');
+
+// Rewrite plain emoji in an HTML-mode message. Existing <tg-emoji> tags, any
+// other tag, and code/pre blocks (where custom emoji are not allowed) are left alone.
+export function decorateHtml(html) {
+  if (typeof html !== 'string' || !html) return html;
+  let skip = 0;
+  return html
+    .split(/(<tg-emoji\b[^>]*>.*?<\/tg-emoji>|<[^>]+>)/gsu)
+    .map((part, i) => {
+      if (i % 2 === 1) {
+        if (/^<(code|pre)\b/i.test(part)) skip++;
+        else if (/^<\/(code|pre)>/i.test(part)) skip = Math.max(0, skip - 1);
+        return part;
+      }
+      if (skip) return part;
+      return part.replace(TEXT_RE, (m, e) => `<tg-emoji emoji-id="${TEXT_MAP[e]}">${m}</tg-emoji>`);
+    })
+    .join('');
+}
+
+// grammY API transformer: decorate text/caption of every HTML message.
+export function premiumEmojiTransformer(prev, method, payload, signal) {
+  if (payload && payload.parse_mode === 'HTML' && !payload.entities && !payload.caption_entities) {
+    if (typeof payload.text === 'string') payload = { ...payload, text: decorateHtml(payload.text) };
+    if (typeof payload.caption === 'string') payload = { ...payload, caption: decorateHtml(payload.caption) };
+  }
+  return prev(method, payload, signal);
+}
