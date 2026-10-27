@@ -622,6 +622,26 @@ async function showFaq(ctx) {
 // ---------- registration ----------
 
 export function registerHandlers(bot) {
+  // Admin helper: send a message containing premium emoji and the bot replies
+  // with their custom_emoji_id values (for src/emoji.js).
+  // Also reads button icons (reply_markup) of forwarded bot messages.
+  bot.on('message', async (ctx, next) => {
+    if (!ctx.isAdmin) return next();
+    const m = ctx.message;
+    const text = m.text || m.caption || '';
+    const lines = (m.entities || [])
+      .concat(m.caption_entities || [])
+      .filter((e) => e.type === 'custom_emoji')
+      .map((e) => `${escapeHtml(text.substr(e.offset, e.length))} <code>${e.custom_emoji_id}</code>`);
+    for (const row of m.reply_markup?.inline_keyboard || []) {
+      for (const b of row) {
+        if (b.icon_custom_emoji_id) lines.push(`button "${escapeHtml(b.text)}" icon <code>${b.icon_custom_emoji_id}</code>`);
+      }
+    }
+    if (!lines.length) return next();
+    await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+  });
+
   bot.command('start', showMainMenu);
   bot.command('menu', showMainMenu);
   bot.command('shop', showShop);
