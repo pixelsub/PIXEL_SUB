@@ -28,6 +28,10 @@ export const UI = {
   chart: '5231200819986047254',
   robot: '5854890673353789054',
   arrow: '5888758586426789596',
+  warn: '5280957715462505291',
+  mail: '4970246557065544891',
+  tick: '5262832270573582269',
+  grad: '5375163339154399459',
   // Manual payment methods, keyed like config.manualMethods[].key
   method: { BINANCE: '5454205576512818013', BYBIT: '5888695201299437962' },
 };
@@ -71,6 +75,7 @@ const TEXT_MAP = {
   '🔐': UI.lock, '📦': UI.box, '🔥': UI.fire, '💵': UI.dollar, '👛': UI.wallet,
   '✅': UI.check, '❌': UI.cross, '⭐': UI.star, '🌟': UI.star,
   '🧮': UI.qty, '📊': UI.chart, '🤖': UI.robot, '➡': UI.arrow,
+  '⚠': UI.warn, '📧': UI.mail, '✔': UI.tick, '🎓': UI.grad,
 };
 const TEXT_RE = new RegExp(`(${Object.keys(TEXT_MAP).join('|')})\\uFE0F?`, 'gu');
 
