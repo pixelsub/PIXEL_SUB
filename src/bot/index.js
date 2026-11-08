@@ -4,6 +4,7 @@ import { userMiddleware } from './middleware.js';
 import { registerHandlers } from './handlers.js';
 import { registerAdminHandlers } from './admin.js';
 import { registerWalletHandlers } from './wallet.js';
+import { registerResellerHandlers } from './reseller.js';
 
 export async function startBot() {
   if (!bot) {
@@ -16,6 +17,7 @@ export async function startBot() {
   // customer text fallback.
   registerAdminHandlers(bot);
   registerWalletHandlers(bot);
+  registerResellerHandlers(bot);
   registerHandlers(bot);
 
   // Global error boundary so one bad update never crashes the bot.
@@ -29,6 +31,7 @@ export async function startBot() {
       { command: 'start', description: 'Open the shop' },
       { command: 'shop', description: 'Browse products' },
       { command: 'orders', description: 'My orders' },
+      { command: 'api', description: 'Reseller API — connect your store' },
       { command: 'help', description: 'Support & help' },
     ])
     .catch((e) => logger.warn({ err: e.message }, 'setMyCommands failed'));

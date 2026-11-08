@@ -13,7 +13,9 @@ export function mainMenuKeyboard(isAdmin = false) {
     .text('Balance', 'balance').icon(UI.wallet)
     .row()
     .text('Support', 'support').icon(UI.support)
-    .text('ℹ️ FAQ', 'faq');
+    .text('ℹ️ FAQ', 'faq')
+    .row()
+    .text('🔌 Reseller API', 'rapi');
   if (isAdmin) kb.row().text('Admin Panel', 'a:menu').icon(UI.shield);
   return kb;
 }
