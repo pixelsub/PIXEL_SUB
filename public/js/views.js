@@ -593,7 +593,7 @@ const Views = (() => {
               el('div', { class: 'k', text: 'Balance there' }), el('div', { class: 'v t-strong', text: fmtNum(s.balance, s.currency) }),
               el('div', { class: 'k', text: 'Rate' }), el('div', { class: 'v', text: `1 ${d.shopCurrency} = ${fmtNum(s.rate, s.currency)}` }),
               el('div', { class: 'k', text: 'Markup' }), el('div', { class: 'v', text: `+${s.markupPct}%` }),
-              el('div', { class: 'k', text: 'Products' }), el('div', { class: 'v', text: `${s.selling} selling · ${s.products} total` }),
+              el('div', { class: 'k', text: 'Products' }), el('div', { class: 'v', text: `${s.selling} in my shop · ${s.products} available` }),
               el('div', { class: 'k', text: 'API key' }), el('div', { class: 'v mono', text: s.keyHint ? '••••' + s.keyHint : '—' }),
               el('div', { class: 'k', text: 'Last sync' }), el('div', { class: 'v', text: s.lastSyncAt ? timeAgo(s.lastSyncAt) : 'never' }),
             ]),
@@ -654,7 +654,7 @@ const Views = (() => {
           const r = await API.post('/suppliers', payload);
           closeModal();
           if (r.syncError) toast(`Saved, but sync failed: ${r.syncError}`, 'bad');
-          else toast(`Connected! ${r.sync.variants} products imported (hidden until you choose to sell them)`);
+          else toast(`Connected! ${r.sync.variants} products found — turn on “In my shop” for the ones you want to sell`);
           supplierProducts(r.supplier.id);
         } else {
           await API.put(`/suppliers/${s.id}`, payload);
@@ -711,8 +711,9 @@ const Views = (() => {
     try { d = await API.get(`/suppliers/${id}/products`); } catch (e) { return mount(errorBox(e)); }
     const s = d.supplier;
     const reload = () => supplierProducts(id);
-    const bulk = (label, cls, payload, msg) => el('button', { class: `btn btn-sm ${cls}`, text: label, onclick: async () => {
-      try { const r = await API.post(`/suppliers/${id}/products/visibility`, payload); toast(`${r.count} ${msg}`); reload(); } catch (e) { toast(e.message, 'bad'); }
+    const bulk = (label, cls, payload, msg, confirmOpts) => el('button', { class: `btn btn-sm ${cls}`, text: label, onclick: async () => {
+      if (confirmOpts && !(await confirmDialog(confirmOpts))) return;
+      try { const r = await API.post(`/suppliers/${id}/products/select`, payload); toast(`${r.count} ${msg}`); reload(); } catch (e) { toast(e.message, 'bad'); }
     } });
 
     const search = el('input', { placeholder: 'Search products…', value: supState.q });
@@ -720,19 +721,25 @@ const Views = (() => {
     const draw = () => {
       const q = supState.q.toLowerCase();
       const rows = d.products.filter((p) => (!q || p.name.toLowerCase().includes(q)) &&
-        (supState.filter === 'all' || (supState.filter === 'selling' ? p.isActive : !p.isActive)));
+        (supState.filter === 'all' || (supState.filter === 'selected' ? p.selected : !p.selected)));
       tableWrap.innerHTML = '';
       if (!rows.length) return tableWrap.appendChild(emptyState('📦', d.products.length ? 'No products match' : 'No products imported yet — press Sync now'));
       const t = el('table');
-      t.appendChild(el('thead', {}, [el('tr', {}, ['Product', `Supplier price (${s.currency})`, 'Your cost', 'Your price', 'Stock', 'Sold', 'Sell'].map((h) => el('th', { text: h })))]));
+      t.appendChild(el('thead', {}, [el('tr', {}, ['Product', `Supplier price (${s.currency})`, 'Your cost', 'Your price', 'Stock', 'Sold', 'In my shop'].map((h) => el('th', { text: h })))]));
       t.appendChild(el('tbody', {}, rows.map((p) => {
-        const sw = el('input', { type: 'checkbox' }); sw.checked = p.isActive;
+        const sw = el('input', { type: 'checkbox' }); sw.checked = p.selected;
         sw.onchange = async () => {
-          try { await API.put(`/products/${p.id}`, { isActive: sw.checked }); p.isActive = sw.checked; toast(sw.checked ? `Now selling ${p.name}` : `${p.name} hidden`); }
-          catch (e) { sw.checked = !sw.checked; toast(e.message, 'bad'); }
+          try {
+            await API.post(`/suppliers/${id}/products/select`, { selected: sw.checked, productIds: [p.id] });
+            p.selected = sw.checked; p.isActive = sw.checked;
+            toast(sw.checked ? `Added to your shop: ${p.name}` : `Removed from your shop: ${p.name}`);
+            draw();
+          } catch (e) { sw.checked = !sw.checked; toast(e.message, 'bad'); }
         };
+        // Selected but hidden on the Products page → say so, it isn't on sale.
+        const note = p.selected && !p.isActive ? el('div', { class: 't-muted', style: 'font-size:11px', text: 'hidden on Products page' }) : null;
         return el('tr', {}, [
-          el('td', {}, [el('div', { class: 't-strong', text: p.name }), el('div', { class: 't-muted mono', style: 'font-size:11px', text: p.variantId })]),
+          el('td', {}, [el('div', { class: 't-strong', text: p.name }), el('div', { class: 't-muted mono', style: 'font-size:11px', text: p.variantId }), note]),
           el('td', { text: fmtNum(p.supplierPrice) }),
           el('td', { class: 't-muted', text: money(p.cost) }),
           el('td', { class: 't-strong', text: money(p.price) }),
@@ -744,7 +751,8 @@ const Views = (() => {
       tableWrap.appendChild(t);
     };
     search.addEventListener('input', () => { supState.q = search.value; draw(); });
-    const seg = el('div', { class: 'seg' }, [['all', 'All'], ['selling', 'Selling'], ['hidden', 'Hidden']].map(([v, l]) =>
+    const selectedCount = d.products.filter((p) => p.selected).length;
+    const seg = el('div', { class: 'seg' }, [['all', `All (${d.products.length})`], ['selected', `Selected (${selectedCount})`], ['unselected', 'Not selected']].map(([v, l]) =>
       el('button', { class: supState.filter === v ? 'active' : '', text: l, onclick: () => { supState.filter = v; reload(); } })));
 
     mount(el('div', {}, [
@@ -756,11 +764,12 @@ const Views = (() => {
       el('div', { class: 'card', style: 'margin-top:14px' }, [
         el('div', { class: 'row-flex', style: 'gap:8px;flex-wrap:wrap;margin-bottom:12px' }, [
           el('div', { class: 'search grow' }, [search]), seg,
-          bulk('✅ Sell all in stock', 'btn-primary', { isActive: true, inStockOnly: true }, 'products now selling'),
-          bulk('🚫 Hide all', 'btn-danger', { isActive: false }, 'products hidden'),
+          bulk('✅ Add all in stock', 'btn-primary', { selected: true, inStockOnly: true }, 'products added to your shop'),
+          bulk('Remove all', 'btn-danger', { selected: false }, 'products removed from your shop',
+            { title: 'Remove all from your shop?', message: `All ${selectedCount} selected products from ${s.name} will be removed from your Products page and the bot.`, confirmText: 'Remove all', danger: true }),
           el('button', { class: 'btn btn-sm', text: '🔄 Sync now', onclick: async () => { try { const r = await API.post(`/suppliers/${id}/sync`); toast(`Synced ${r.result.variants} products`); reload(); } catch (e) { toast(e.message, 'bad'); } } }),
         ]),
-        el('div', { class: 'hint', style: 'margin-bottom:10px', text: 'New products are imported hidden. Turn on “Sell” to show a product in your bot. Rename it or change its emoji/category on the Products page — price and stock always follow the supplier.' }),
+        el('div', { class: 'hint', style: 'margin-bottom:10px', text: 'Turn on “In my shop” for the products you want to sell — only those appear on your Products page and in the bot. Rename them or change emoji/category on the Products page; price and stock always follow the supplier.' }),
         tableWrap,
       ]),
     ]));

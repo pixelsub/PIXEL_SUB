@@ -42,6 +42,8 @@ function serializeProduct(p) {
 // List all products with available-stock counts
 router.get('/', async (req, res) => {
   const products = await prisma.product.findMany({
+    // Own products, plus only the supplier products picked on the Supplier page.
+    where: { OR: [{ supplierId: null }, { supplierSelected: true }] },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
     include: {
       category: true,
@@ -115,7 +117,11 @@ router.put('/:id', async (req, res) => {
   if (b.price !== undefined) data.price = Number(b.price);
   if (b.cost !== undefined) data.cost = Number(b.cost) || 0;
   if (b.categoryId !== undefined) data.categoryId = b.categoryId ? Number(b.categoryId) : null;
-  if (b.isActive !== undefined) data.isActive = Boolean(b.isActive);
+  if (b.isActive !== undefined) {
+    data.isActive = Boolean(b.isActive);
+    // Putting a supplier product on sale also selects it (no-op for own products).
+    if (data.isActive) data.supplierSelected = true;
+  }
   if (b.sortOrder !== undefined) data.sortOrder = Number(b.sortOrder) || 0;
   if (b.usesStock !== undefined) data.usesStock = Boolean(b.usesStock);
   if (b.fixedContent !== undefined) data.fixedContent = b.fixedContent;
@@ -137,9 +143,10 @@ router.delete('/:id', async (req, res) => {
     // Block delete if the product has orders (preserve history); soft-disable instead.
     const orderItems = await prisma.orderItem.count({ where: { productId: Number(req.params.id) } });
     if (orderItems > 0) {
+      // Supplier products also go back to "not selected" on the Supplier page.
       const product = await prisma.product.update({
         where: { id: Number(req.params.id) },
-        data: { isActive: false },
+        data: { isActive: false, supplierSelected: false },
       });
       return res.json({ ok: true, softDeleted: true, note: 'Product has order history; deactivated instead of deleted.' });
     }

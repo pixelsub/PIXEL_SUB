@@ -81,7 +81,7 @@ router.get('/', async (req, res) => {
   const [suppliers, totals, active] = await Promise.all([
     prisma.supplier.findMany({ orderBy: { id: 'asc' } }),
     prisma.product.groupBy({ by: ['supplierId'], where: { supplierId: { not: null } }, _count: { _all: true } }),
-    prisma.product.groupBy({ by: ['supplierId'], where: { supplierId: { not: null }, isActive: true }, _count: { _all: true } }),
+    prisma.product.groupBy({ by: ['supplierId'], where: { supplierId: { not: null }, supplierSelected: true }, _count: { _all: true } }),
   ]);
   const t = new Map(totals.map((x) => [x.supplierId, x._count._all]));
   const a = new Map(active.map((x) => [x.supplierId, x._count._all]));
@@ -113,6 +113,9 @@ router.put('/:id', async (req, res) => {
     if (data.isActive === false) {
       // A disabled supplier can't fulfil — hide its products from the shop.
       await prisma.product.updateMany({ where: { supplierId: id }, data: { isActive: false } });
+    } else if (data.isActive === true) {
+      // Re-enabled: put the selected products back on sale.
+      await prisma.product.updateMany({ where: { supplierId: id, supplierSelected: true }, data: { isActive: true } });
     }
     res.json({ supplier: serialize(supplier) });
   } catch {
@@ -122,7 +125,9 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   const id = Number(req.params.id);
-  // Products stay (order history) but are hidden and detached.
+  // Products never sold are removed; sold ones are kept (order history) but
+  // hidden, and stay on the Products page only if they were selected.
+  await prisma.product.deleteMany({ where: { supplierId: id, orderItems: { none: {} } } });
   await prisma.product.updateMany({ where: { supplierId: id }, data: { isActive: false, supplierStock: 0 } });
   try {
     await prisma.supplier.delete({ where: { id } });
@@ -155,7 +160,7 @@ router.get('/:id/products', async (req, res) => {
   if (!supplier) return res.status(404).json({ error: 'Not found' });
   const products = await prisma.product.findMany({
     where: { supplierId: supplier.id },
-    orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
+    orderBy: [{ supplierSelected: 'desc' }, { name: 'asc' }],
     include: { _count: { select: { stock: { where: { isSold: false } }, orderItems: true } } },
   });
   res.json({
@@ -170,20 +175,24 @@ router.get('/:id/products', async (req, res) => {
       price: num(p.price),
       stock: stockOf(p),
       supplierStock: p.supplierStock ?? 0,
+      selected: p.supplierSelected,
       isActive: p.isActive,
       sold: p._count.orderItems,
     })),
   });
 });
 
-// Show / hide many supplier products at once.
-router.post('/:id/products/visibility', async (req, res) => {
+// Select / unselect supplier products. Selecting adds them to the shop
+// (Products page + on sale); unselecting removes them from both.
+router.post('/:id/products/select', async (req, res) => {
   const id = Number(req.params.id);
-  const isActive = Boolean(req.body?.isActive);
+  const selected = Boolean(req.body?.selected);
   const where = { supplierId: id };
   if (Array.isArray(req.body?.productIds)) where.id = { in: req.body.productIds.map(Number) };
   else if (req.body?.inStockOnly) where.supplierStock = { gt: 0 };
-  const r = await prisma.product.updateMany({ where, data: { isActive } });
+  if (selected) where.supplierSelected = false; // count only newly added
+  else where.supplierSelected = true;
+  const r = await prisma.product.updateMany({ where, data: { supplierSelected: selected, isActive: selected } });
   res.json({ ok: true, count: r.count });
 });
 

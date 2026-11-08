@@ -77,6 +77,9 @@ model Product {
   supplierStock     Int?
   supplierMinQty    Int?
   supplierMaxQty    Int?
+  // Picked by the admin on the Supplier page. Only selected supplier
+  // products appear on the Products page and can be sold.
+  supplierSelected  Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

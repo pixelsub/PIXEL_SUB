@@ -216,6 +216,8 @@ async function showProfit(ctx, page = 0) {
 async function listProducts(ctx) {
   clearState(ctx.from.id);
   const products = await prisma.product.findMany({
+    // Same as the web Products page: unselected supplier products stay out.
+    where: { OR: [{ supplierId: null }, { supplierSelected: true }] },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
     include: { _count: { select: { stock: { where: { isSold: false } } } } },
   });

@@ -64,6 +64,8 @@ export async function syncSupplier(supplierId) {
   try {
     const { variants } = await client.listProducts(s);
     const balance = await client.getBalance(s).catch(() => null);
+    // Products put on sale before "selected" existed count as selected.
+    await prisma.product.updateMany({ where: { supplierId: supplier.id, isActive: true, supplierSelected: false }, data: { supplierSelected: true } });
     const existing = await prisma.product.findMany({ where: { supplierId: supplier.id } });
     const byVariant = new Map(existing.map((p) => [p.supplierVariantId, p]));
     const seen = new Set();
