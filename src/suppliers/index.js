@@ -86,12 +86,20 @@ export async function syncSupplier(supplierId) {
           data: { ...fields, name: v.name, description: v.description, usesStock: true, isActive: false, supplierId: supplier.id, supplierVariantId: v.variantId },
         });
         created++;
-      } else if (
-        num(p.supplierPrice) !== v.price || p.supplierStock !== v.stock || num(p.price) !== price ||
-        num(p.cost) !== cost || p.supplierMinQty !== v.minQty || p.supplierMaxQty !== v.maxQty
-      ) {
-        await prisma.product.update({ where: { id: p.id }, data: fields });
-        updated++;
+      } else {
+        // Products still carrying the placeholder name (imported before the
+        // supplier's name field was recognised) pick up the real name.
+        // Names the admin changed are left alone.
+        const placeholder = p.name === `Variant ${v.variantId}`;
+        const rename = placeholder && v.name !== p.name ? { name: v.name, ...(p.description ? {} : { description: v.description }) } : {};
+        if (
+          Object.keys(rename).length ||
+          num(p.supplierPrice) !== v.price || p.supplierStock !== v.stock || num(p.price) !== price ||
+          num(p.cost) !== cost || p.supplierMinQty !== v.minQty || p.supplierMaxQty !== v.maxQty
+        ) {
+          await prisma.product.update({ where: { id: p.id }, data: { ...fields, ...rename } });
+          updated++;
+        }
       }
     }
     const gone = existing.filter((p) => !seen.has(p.supplierVariantId) && p.supplierStock !== 0).map((p) => p.id);

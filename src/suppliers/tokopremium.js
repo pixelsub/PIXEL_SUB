@@ -69,6 +69,17 @@ const firstNum = (...vals) => {
   return null;
 };
 
+// First usable text among candidates; accepts plain strings or objects with a
+// name/title (e.g. `product: { name: "CapCut" }`).
+const textOf = (...vals) => {
+  for (const v of vals) {
+    if (v == null) continue;
+    const s = typeof v === 'object' ? (v.name ?? v.title ?? v.label) : v;
+    if (typeof s === 'string' && s.trim()) return s.trim();
+  }
+  return '';
+};
+
 // The catalog may be flat variants or products with a `variants` array; field
 // names are matched loosely so small format differences don't break the sync.
 export function normalizeProducts(data) {
@@ -84,8 +95,10 @@ export function normalizeProducts(data) {
     let stock = firstNum(v.stock, v.available_stock, v.stock_available, v.qty_available, v.stock?.available,
       typeof v.available === 'number' ? v.available : null);
     if (v.available === false || v.in_stock === false || v.is_available === false) stock = 0;
-    const vName = String(v.name ?? v.title ?? v.variant_name ?? '').trim();
-    const pName = String(parent?.name ?? parent?.title ?? '').trim();
+    const vName = textOf(v.name, v.title, v.variant_name, v.variantName, v.label, v.display_name, v.full_name,
+      v.variant, v.duration, v.plan, v.package, v.option);
+    const pName = textOf(parent?.name, parent?.title, parent?.product_name, parent?.display_name,
+      v.product_name, v.productName, v.product_title, v.product, v.service, v.service_name, v.app, v.brand, v.category);
     const name = pName && vName && !vName.toLowerCase().includes(pName.toLowerCase()) ? `${pName} — ${vName}` : (vName || pName || `Variant ${id}`);
     out.push({
       variantId: String(id),
@@ -99,7 +112,8 @@ export function normalizeProducts(data) {
   };
   for (const p of list) {
     if (!p || typeof p !== 'object') continue;
-    if (Array.isArray(p.variants) && p.variants.length) p.variants.forEach((v) => add(p, v));
+    const nested = [p.variants, p.items, p.plans, p.options, p.packages].find((a) => Array.isArray(a) && a.length);
+    if (nested) nested.forEach((v) => add(p, v));
     else add(null, p);
   }
   return out;
