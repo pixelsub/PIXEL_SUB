@@ -25,7 +25,8 @@ import logger from '../../logger.js';
 import { emojiPlain } from '../../emoji.js';
 import { num } from '../../utils.js';
 import { hashApiKey } from '../../services/api_keys.js';
-import { payWithBalance } from '../../services/orders.js';
+import { payWithBalance, availableStock } from '../../services/orders.js';
+import { STOCK_COUNT, stockOf } from '../../services/stock.js';
 import { render } from '../../services/settings.js';
 
 const MAX_QUANTITY = 500;
@@ -80,14 +81,11 @@ router.use(
   })
 );
 
-const productInclude = {
-  category: true,
-  _count: { select: { stock: { where: { isSold: false } } } },
-};
+const productInclude = { category: true, ...STOCK_COUNT };
 
 function serialize(p) {
   const unlimited = !p.usesStock;
-  const stock = unlimited ? null : p._count.stock;
+  const stock = unlimited ? null : stockOf(p);
   return {
     id: p.id,
     name: p.name,
@@ -125,10 +123,10 @@ router.get('/products/:id', async (req, res) => {
 router.get('/stock', async (req, res) => {
   const products = await prisma.product.findMany({
     where: { isActive: true },
-    select: { id: true, usesStock: true, _count: { select: { stock: { where: { isSold: false } } } } },
+    select: { id: true, usesStock: true, supplierId: true, supplierStock: true, supplierMaxQty: true, ...STOCK_COUNT },
   });
   const stock = {};
-  for (const p of products) stock[p.id] = p.usesStock ? p._count.stock : null;
+  for (const p of products) stock[p.id] = p.usesStock ? stockOf(p) : null;
   res.json({ stock, generatedAt: new Date() });
 });
 
@@ -241,9 +239,7 @@ router.post('/orders', requireReseller, async (req, res) => {
       return res.status(402).json({ error: 'Insufficient balance', code: e.code, balance, required: +(num(product.price) * quantity).toFixed(2) });
     }
     if (e.code === 'OUT_OF_STOCK') {
-      const available = product.usesStock
-        ? await prisma.stockItem.count({ where: { productId: product.id, isSold: false } })
-        : null;
+      const available = product.usesStock ? await availableStock(product.id) : null;
       return res.status(409).json({ error: 'Not enough stock', code: e.code, available, balance });
     }
     logger.error({ err: e.message, key: req.apiKey.id }, 'reseller API order failed');

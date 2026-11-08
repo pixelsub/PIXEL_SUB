@@ -3,6 +3,7 @@ import { emojiPlain } from '../../emoji.js';
 import prisma from '../../db.js';
 import { requireAuth } from '../auth.js';
 import { num } from '../../utils.js';
+import { stockOf } from '../../services/stock.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -48,7 +49,7 @@ router.get('/', async (req, res) => {
     prisma.product.count({ where: { isActive: true } }),
     prisma.product.findMany({
       where: { isActive: true, usesStock: true },
-      select: { id: true, name: true, emoji: true, _count: { select: { stock: { where: { isSold: false } } } } },
+      select: { id: true, name: true, emoji: true, supplierId: true, supplierStock: true, supplierMaxQty: true, _count: { select: { stock: { where: { isSold: false } } } } },
     }),
     prisma.order.findMany({
       orderBy: { createdAt: 'desc' },
@@ -86,7 +87,7 @@ router.get('/', async (req, res) => {
   }
 
   const lowStock = lowStockProducts
-    .map((p) => ({ id: p.id, name: p.name, emoji: emojiPlain(p.emoji), stock: p._count.stock }))
+    .map((p) => ({ id: p.id, name: p.name, emoji: emojiPlain(p.emoji), stock: stockOf(p) }))
     .filter((p) => p.stock <= 3)
     .sort((a, b) => a.stock - b.stock);
 

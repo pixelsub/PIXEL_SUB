@@ -198,14 +198,15 @@ const Views = (() => {
       ? el('span', { class: `stock-chip ${p.stock === 0 ? 'zero' : p.stock <= 3 ? 'low' : ''}`, text: p.stock === 0 ? 'Out of stock' : `${p.stock} in stock` })
       : el('span', { class: 'stock-chip', text: '♾️ Unlimited' });
     const activeChip = p.isActive ? null : el('span', { class: 'badge EXPIRED', text: 'Hidden' });
+    const supplierChip = p.supplierId ? el('span', { class: 'badge PAID', text: `🚚 ${p.supplierName || 'Supplier'}` }) : null;
     return el('div', { class: 'card prod-card' + (p.isActive ? '' : ' dim') }, [
       el('div', { class: 'prod-top' }, [
         el('div', { class: 'prod-emoji', text: p.emoji }),
         el('div', {}, [el('div', { class: 'prod-name', text: p.name }), el('div', { class: 'prod-price', text: money(p.price) })]),
       ]),
-      el('div', { class: 'prod-meta' }, [stockChip, activeChip]),
+      el('div', { class: 'prod-meta' }, [stockChip, supplierChip, activeChip]),
       el('div', { class: 'prod-actions' }, [
-        p.usesStock ? el('button', { class: 'btn btn-sm btn-good', html: '📦 Stock', onclick: () => stockModal(p) }) : null,
+        p.usesStock && !p.supplierId ? el('button', { class: 'btn btn-sm btn-good', html: '📦 Stock', onclick: () => stockModal(p) }) : null,
         el('button', { class: 'btn btn-sm', html: '✎ Edit', onclick: () => productModal(p) }),
         el('button', { class: 'btn btn-sm btn-danger', html: '🗑', onclick: () => deleteProduct(p) }),
       ]),
@@ -566,6 +567,206 @@ const Views = (() => {
     mount(el('div', {}, [el('div', { class: 'grid cols-2' }, [content, health]), el('div', { class: 'modal-foot', style: 'margin-top:18px' }, [saveBtn])]));
   }
 
+  // ============================ SUPPLIERS ============================
+  const fmtNum = (n, cur) => (n == null ? '—' : `${Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${cur || ''}`.trim());
+
+  async function suppliers() {
+    loading();
+    let d;
+    try { d = await API.get('/suppliers'); } catch (e) { return mount(errorBox(e)); }
+
+    const head = el('div', { class: 'toolbar' }, [
+      el('div', { class: 'hint grow', text: 'Sell your suppliers’ products with live stock. Prices = supplier price ÷ rate + your markup, updated automatically every minute. When a customer buys, the bot orders from the supplier and delivers instantly.' }),
+      el('button', { class: 'btn btn-primary', html: '＋ Add supplier', onclick: () => supplierModal(null, d) }),
+    ]);
+
+    const body = d.suppliers.length
+      ? el('div', { class: 'grid cols-2' }, d.suppliers.map((s) => {
+          const act = (label, cls, fn) => el('button', { class: `btn btn-sm ${cls}`, html: label, onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { await fn(); } catch (err) { toast(err.message, 'bad'); } b.disabled = false; } });
+          return el('div', { class: 'card' + (s.isActive ? '' : ' dim') }, [
+            el('div', { class: 'card-head' }, [
+              el('h3', { text: `🚚 ${s.name}` }),
+              el('span', { class: `badge ${s.isActive ? (s.lastSyncError ? 'FAILED' : 'DELIVERED') : 'CANCELLED'}`, text: !s.isActive ? 'disabled' : s.lastSyncError ? 'sync error' : 'connected' }),
+            ]),
+            el('div', { class: 'kv' }, [
+              el('div', { class: 'k', text: 'Type' }), el('div', { class: 'v', text: s.typeLabel }),
+              el('div', { class: 'k', text: 'Balance there' }), el('div', { class: 'v t-strong', text: fmtNum(s.balance, s.currency) }),
+              el('div', { class: 'k', text: 'Rate' }), el('div', { class: 'v', text: `1 ${d.shopCurrency} = ${fmtNum(s.rate, s.currency)}` }),
+              el('div', { class: 'k', text: 'Markup' }), el('div', { class: 'v', text: `+${s.markupPct}%` }),
+              el('div', { class: 'k', text: 'Products' }), el('div', { class: 'v', text: `${s.selling} selling · ${s.products} total` }),
+              el('div', { class: 'k', text: 'API key' }), el('div', { class: 'v mono', text: s.keyHint ? '••••' + s.keyHint : '—' }),
+              el('div', { class: 'k', text: 'Last sync' }), el('div', { class: 'v', text: s.lastSyncAt ? timeAgo(s.lastSyncAt) : 'never' }),
+            ]),
+            s.lastSyncError ? el('div', { class: 'toast bad', style: 'margin-top:10px' }, [el('span', { class: 'tc', text: '⚠️' }), el('div', { class: 'mono', style: 'font-size:12px', text: s.lastSyncError })]) : null,
+            el('div', { class: 'row-flex', style: 'gap:6px;flex-wrap:wrap;margin-top:12px' }, [
+              act('🛍️ Products', 'btn-primary', async () => supplierProducts(s.id)),
+              act('🔄 Sync now', '', async () => { const r = await API.post(`/suppliers/${s.id}/sync`); toast(`Synced: ${r.result.variants} products (${r.result.created} new, ${r.result.updated} updated)`); suppliers(); }),
+              act('🧪 Test', '', async () => supplierTest(s)),
+              act('✎ Edit', '', async () => supplierModal(s, d)),
+              act(s.isActive ? 'Disable' : 'Enable', '', async () => { await API.put(`/suppliers/${s.id}`, { isActive: !s.isActive }); toast(s.isActive ? 'Supplier disabled — its products are hidden' : 'Supplier enabled'); suppliers(); }),
+              act('🗑', 'btn-danger', async () => {
+                if (!(await confirmDialog({ title: 'Delete supplier?', message: `“${s.name}” will be removed and its ${s.products} products hidden. Order history is kept.`, confirmText: 'Delete', danger: true }))) return;
+                await API.del(`/suppliers/${s.id}`); toast('Supplier deleted'); suppliers();
+              }),
+            ]),
+          ]);
+        }))
+      : el('div', { class: 'card' }, [emptyState('🚚', 'No suppliers yet. Add one with its API key to import products with live stock.')]);
+
+    mount(el('div', {}, [head, el('div', { style: 'margin-top:14px' }, [body])]));
+  }
+
+  function supplierModal(s, d) {
+    const isNew = !s;
+    const types = d.types || [];
+    const t0 = types.find((t) => t.type === (s?.type || 'tokopremium')) || types[0];
+    const f = (id) => document.getElementById(id);
+    const body = el('div', { class: 'form-grid' }, [
+      field('Supplier name', `<input id="sp-name" value="${esc(s?.name || '')}" placeholder="e.g. TokoPremium" />`),
+      field('API type', `<select id="sp-type">${types.map((t) => `<option value="${t.type}" ${t.type === t0.type ? 'selected' : ''}>${esc(t.label)}</option>`).join('')}</select>`),
+      field('API base URL', `<input id="sp-url" class="mono" value="${esc(s?.baseUrl || t0.defaultBaseUrl)}" />`, true),
+      field(isNew ? 'API key' : `API key (leave empty to keep ••••${esc(s.keyHint || '')})`, `<input id="sp-key" type="password" autocomplete="off" class="mono" placeholder="tpk_…" />`, true),
+      field('Supplier currency', `<input id="sp-cur" value="${esc(s?.currency || t0.defaultCurrency)}" />`),
+      field(`Rate: 1 ${d.shopCurrency} = ? supplier currency`, `<input id="sp-rate" type="number" step="0.0001" value="${s ? s.rate : ''}" placeholder="e.g. 16500" />`),
+      field('Markup % (your profit)', `<input id="sp-markup" type="number" step="0.1" value="${s ? s.markupPct : 20}" />`),
+    ]);
+    const preview = el('div', { class: 'hint', style: 'margin-top:10px' });
+    const updatePreview = () => {
+      const rate = parseFloat(f('sp-rate')?.value), mk = parseFloat(f('sp-markup')?.value) || 0, cur = f('sp-cur')?.value || '';
+      if (!(rate > 0)) { preview.textContent = 'Enter the exchange rate to see a price example.'; return; }
+      const sample = cur === 'IDR' ? 10000 : 10;
+      const cost = sample / rate;
+      preview.textContent = `Example: supplier price ${sample.toLocaleString()} ${cur} → your cost ${money(cost, d.shopCurrency)} → you sell at ${money(cost * (1 + mk / 100), d.shopCurrency)}`;
+    };
+    const save = el('button', { class: 'btn btn-primary', text: isNew ? 'Add & sync' : 'Save' });
+    save.onclick = async () => {
+      const payload = {
+        name: f('sp-name').value.trim(), type: f('sp-type').value, baseUrl: f('sp-url').value.trim(),
+        currency: f('sp-cur').value.trim(), rate: parseFloat(f('sp-rate').value), markupPct: parseFloat(f('sp-markup').value),
+      };
+      const key = f('sp-key').value.trim();
+      if (key) payload.apiKey = key;
+      if (isNew && !key) return toast('Enter the API key', 'bad');
+      if (!(payload.rate > 0)) return toast('Enter the exchange rate', 'bad');
+      save.disabled = true; save.textContent = isNew ? 'Connecting…' : 'Saving…';
+      try {
+        if (isNew) {
+          const r = await API.post('/suppliers', payload);
+          closeModal();
+          if (r.syncError) toast(`Saved, but sync failed: ${r.syncError}`, 'bad');
+          else toast(`Connected! ${r.sync.variants} products imported (hidden until you choose to sell them)`);
+          supplierProducts(r.supplier.id);
+        } else {
+          await API.put(`/suppliers/${s.id}`, payload);
+          closeModal(); toast('Supplier saved — prices recalculated'); suppliers();
+        }
+      } catch (e) { toast(e.message, 'bad'); save.disabled = false; save.textContent = isNew ? 'Add & sync' : 'Save'; }
+    };
+    modal({ title: isNew ? 'Add supplier' : `Edit ${s.name}`, subtitle: 'The API key is stored encrypted and never shown again.', body: el('div', {}, [body, preview]), footer: [el('button', { class: 'btn btn-ghost', text: 'Cancel', onclick: closeModal }), save], wide: true });
+    ['sp-rate', 'sp-markup', 'sp-cur'].forEach((id) => f(id).addEventListener('input', updatePreview));
+    f('sp-type').addEventListener('change', () => { const t = types.find((x) => x.type === f('sp-type').value); if (t && isNew) { f('sp-url').value = t.defaultBaseUrl; f('sp-cur').value = t.defaultCurrency; } });
+    updatePreview();
+  }
+
+  async function supplierTest(s) {
+    modal({ title: `Testing ${s.name}…`, body: el('div', {}, [spinner()]), wide: true });
+    const r = await API.post(`/suppliers/${s.id}/test`);
+    if (!r.ok) {
+      return modal({ title: '❌ Connection failed', body: el('div', {}, [
+        el('div', { class: 'kv' }, [
+          el('div', { class: 'k', text: 'Error' }), el('div', { class: 'v', text: r.error }),
+          el('div', { class: 'k', text: 'Code' }), el('div', { class: 'v mono', text: r.code || '—' }),
+          el('div', { class: 'k', text: 'HTTP' }), el('div', { class: 'v', text: String(r.status || '—') }),
+          el('div', { class: 'k', text: 'Request ID' }), el('div', { class: 'v mono', text: r.requestId || '—' }),
+        ]),
+      ]), footer: [el('button', { class: 'btn', text: 'Close', onclick: closeModal })], wide: true });
+    }
+    const t = el('table');
+    t.appendChild(el('thead', {}, [el('tr', {}, ['Variant', 'Name', 'Supplier price', 'Stock', 'Your cost', 'Your price'].map((h) => el('th', { text: h })))]));
+    t.appendChild(el('tbody', {}, r.sampleParsed.map((v) => el('tr', {}, [
+      el('td', { class: 'mono', text: v.variantId }), el('td', { text: v.name }), el('td', { text: fmtNum(v.supplierPrice, s.currency) }),
+      el('td', { text: String(v.stock) }), el('td', { text: money(v.cost) }), el('td', { class: 't-strong', text: money(v.price) }),
+    ]))));
+    modal({
+      title: '✅ Connected',
+      subtitle: `${r.variantCount} products found. Check the parsed values match the supplier's raw data.`,
+      body: el('div', {}, [
+        el('h3', { style: 'font-family:var(--font-head);margin:0 0 6px', text: 'Parsed (first 5)' }),
+        el('div', { class: 'table-wrap' }, [t]),
+        el('h3', { style: 'font-family:var(--font-head);margin:16px 0 6px', text: '/ping' }),
+        el('pre', { class: 'mono', style: 'white-space:pre-wrap;font-size:12px;max-height:160px;overflow:auto', text: JSON.stringify(r.ping, null, 2) }),
+        el('h3', { style: 'font-family:var(--font-head);margin:16px 0 6px', text: 'Raw /products sample' }),
+        el('pre', { class: 'mono', style: 'white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto', text: JSON.stringify(r.sampleRaw, null, 2) }),
+      ]),
+      footer: [el('button', { class: 'btn', text: 'Copy raw sample', onclick: () => copy(JSON.stringify(r.sampleRaw, null, 2)) }), el('button', { class: 'btn btn-primary', text: 'Close', onclick: closeModal })],
+      wide: true,
+    });
+  }
+
+  const supState = { id: null, q: '', filter: 'all' };
+  async function supplierProducts(id) {
+    if (supState.id !== id) Object.assign(supState, { id, q: '', filter: 'all' });
+    loading();
+    let d;
+    try { d = await API.get(`/suppliers/${id}/products`); } catch (e) { return mount(errorBox(e)); }
+    const s = d.supplier;
+    const reload = () => supplierProducts(id);
+    const bulk = (label, cls, payload, msg) => el('button', { class: `btn btn-sm ${cls}`, text: label, onclick: async () => {
+      try { const r = await API.post(`/suppliers/${id}/products/visibility`, payload); toast(`${r.count} ${msg}`); reload(); } catch (e) { toast(e.message, 'bad'); }
+    } });
+
+    const search = el('input', { placeholder: 'Search products…', value: supState.q });
+    const tableWrap = el('div', { class: 'table-wrap' });
+    const draw = () => {
+      const q = supState.q.toLowerCase();
+      const rows = d.products.filter((p) => (!q || p.name.toLowerCase().includes(q)) &&
+        (supState.filter === 'all' || (supState.filter === 'selling' ? p.isActive : !p.isActive)));
+      tableWrap.innerHTML = '';
+      if (!rows.length) return tableWrap.appendChild(emptyState('📦', d.products.length ? 'No products match' : 'No products imported yet — press Sync now'));
+      const t = el('table');
+      t.appendChild(el('thead', {}, [el('tr', {}, ['Product', `Supplier price (${s.currency})`, 'Your cost', 'Your price', 'Stock', 'Sold', 'Sell'].map((h) => el('th', { text: h })))]));
+      t.appendChild(el('tbody', {}, rows.map((p) => {
+        const sw = el('input', { type: 'checkbox' }); sw.checked = p.isActive;
+        sw.onchange = async () => {
+          try { await API.put(`/products/${p.id}`, { isActive: sw.checked }); p.isActive = sw.checked; toast(sw.checked ? `Now selling ${p.name}` : `${p.name} hidden`); }
+          catch (e) { sw.checked = !sw.checked; toast(e.message, 'bad'); }
+        };
+        return el('tr', {}, [
+          el('td', {}, [el('div', { class: 't-strong', text: p.name }), el('div', { class: 't-muted mono', style: 'font-size:11px', text: p.variantId })]),
+          el('td', { text: fmtNum(p.supplierPrice) }),
+          el('td', { class: 't-muted', text: money(p.cost) }),
+          el('td', { class: 't-strong', text: money(p.price) }),
+          el('td', {}, [el('span', { class: `stock-chip ${p.supplierStock === 0 ? 'zero' : p.supplierStock <= 3 ? 'low' : ''}`, text: p.supplierStock === 0 ? 'Out' : String(p.supplierStock) })]),
+          el('td', { text: String(p.sold) }),
+          el('td', {}, [el('label', { class: 'switch' }, [sw, el('span', { class: 'track' })])]),
+        ]);
+      })));
+      tableWrap.appendChild(t);
+    };
+    search.addEventListener('input', () => { supState.q = search.value; draw(); });
+    const seg = el('div', { class: 'seg' }, [['all', 'All'], ['selling', 'Selling'], ['hidden', 'Hidden']].map(([v, l]) =>
+      el('button', { class: supState.filter === v ? 'active' : '', text: l, onclick: () => { supState.filter = v; reload(); } })));
+
+    mount(el('div', {}, [
+      el('div', { class: 'toolbar' }, [
+        el('button', { class: 'btn btn-sm', text: '‹ All suppliers', onclick: () => suppliers() }),
+        el('h2', { style: 'font-family:var(--font-head);margin:0 0 0 8px', text: `🚚 ${s.name}` }),
+        el('span', { class: 't-muted', text: `Balance: ${fmtNum(s.balance, s.currency)} · +${s.markupPct}% markup · synced ${s.lastSyncAt ? timeAgo(s.lastSyncAt) : 'never'}` }),
+      ]),
+      el('div', { class: 'card', style: 'margin-top:14px' }, [
+        el('div', { class: 'row-flex', style: 'gap:8px;flex-wrap:wrap;margin-bottom:12px' }, [
+          el('div', { class: 'search grow' }, [search]), seg,
+          bulk('✅ Sell all in stock', 'btn-primary', { isActive: true, inStockOnly: true }, 'products now selling'),
+          bulk('🚫 Hide all', 'btn-danger', { isActive: false }, 'products hidden'),
+          el('button', { class: 'btn btn-sm', text: '🔄 Sync now', onclick: async () => { try { const r = await API.post(`/suppliers/${id}/sync`); toast(`Synced ${r.result.variants} products`); reload(); } catch (e) { toast(e.message, 'bad'); } } }),
+        ]),
+        el('div', { class: 'hint', style: 'margin-bottom:10px', text: 'New products are imported hidden. Turn on “Sell” to show a product in your bot. Rename it or change its emoji/category on the Products page — price and stock always follow the supplier.' }),
+        tableWrap,
+      ]),
+    ]));
+    draw();
+  }
+
   // ============================ RESELLER API ============================
   async function apiKeys() {
     loading();
@@ -824,5 +1025,5 @@ const Views = (() => {
     ]);
   }
 
-  return { dashboard, products, orders, users, broadcast, settings, apiKeys };
+  return { dashboard, products, orders, users, broadcast, settings, apiKeys, suppliers };
 })();

@@ -4,6 +4,7 @@ import prisma from './db.js';
 import { startServer } from './web/server.js';
 import { startBot, stopBot } from './bot/index.js';
 import { startPoller, stopPoller } from './payments/poller.js';
+import { startSupplierWorker, stopSupplierWorker } from './suppliers/worker.js';
 import { verifyAccountMatchesPayId } from './payments/binance.js';
 import { ensureDefaults } from './services/settings.js';
 import { ensureBootstrapAdmin } from './web/auth.js';
@@ -37,6 +38,9 @@ async function main() {
   // Background payment reconciliation
   startPoller();
 
+  // Supplier catalog/stock sync + pending supplier order retries
+  startSupplierWorker();
+
   // Confirm the advertised Binance ID is the account our API keys can read.
   // Deliberately not awaited into the boot path — a slow exchange must never
   // delay the health check.
@@ -49,6 +53,7 @@ async function shutdown(signal) {
   logger.info({ signal }, 'Shutting down…');
   try {
     stopPoller();
+    stopSupplierWorker();
     await stopBot();
     await prisma.$disconnect();
   } catch (e) {

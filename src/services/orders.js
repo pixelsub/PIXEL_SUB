@@ -9,10 +9,14 @@ import { sendDelivery, sendOutOfStockApology, notifyAdmins, sendMessageSafe } fr
 import { render } from './settings.js';
 import { money, escapeHtml } from '../utils.js';
 import { InlineKeyboard } from 'grammy';
+import { STOCK_COUNT, stockOf, isSupplierProduct } from './stock.js';
+import { buyFromSupplier } from '../suppliers/index.js';
 
-// How many unsold stock items a product currently has.
+// How many units of a product can be sold right now (own stock rows, or the
+// supplier's live stock for supplier-backed products).
 export async function availableStock(productId) {
-  return prisma.stockItem.count({ where: { productId, isSold: false } });
+  const p = await prisma.product.findUnique({ where: { id: productId }, include: STOCK_COUNT });
+  return stockOf(p);
 }
 
 async function logEvent(orderId, type, message = '') {
@@ -623,21 +627,62 @@ export async function payWithBalance({ user, product, quantity, resellerRef = nu
   }
 
   if (!result.delivered && result.reason === 'out_of_stock') {
-    // Refund balance since we couldn't fulfil.
-    await prisma.user.update({ where: { id: user.id }, data: { balance: { increment: total } } });
-    await logEvent(order.id, 'note', 'balance refunded (stock ran out)');
+    // Refund balance since we couldn't fulfil. Marked REFUNDED so neither an
+    // admin nor the supplier sweeper tries to fulfil it again afterwards.
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: user.id }, data: { balance: { increment: total } } }),
+      prisma.order.update({ where: { id: order.id }, data: { status: 'REFUNDED' } }),
+    ]);
+    await logEvent(order.id, 'note', 'balance refunded automatically (could not be fulfilled)');
     const err = new Error('Out of stock');
     err.code = 'OUT_OF_STOCK';
     throw err;
   }
+  if (!result.delivered && result.reason === 'supplier_pending') {
+    // Paid and being bought from the supplier; delivered by the sweeper.
+    return { order, delivered: false, pending: true };
+  }
   return { order, delivered: true };
+}
+
+/**
+ * Buy the supplier-backed lines of an order from their suppliers and attach
+ * the returned accounts to the order line as sold stock. Runs before (outside)
+ * the DB transaction because it makes network calls.
+ * Returns null when every supplier line is stocked, else { pending } or { failed }.
+ */
+async function procureSupplierLines(order) {
+  for (const item of order.items) {
+    if (!isSupplierProduct(item.product)) continue;
+    const have = await prisma.stockItem.count({ where: { orderItemId: item.id } });
+    if (have >= item.quantity) continue; // already bought (retry / redelivery)
+
+    const key = `${order.publicId}-${item.id}`;
+    const res = await buyFromSupplier(item.product, item.quantity - have, have ? `${key}-r${have}` : key);
+    if (res.pending) {
+      await logEvent(order.id, 'supplier_pending', res.message);
+      return { pending: true };
+    }
+    if (!res.ok) {
+      await logEvent(order.id, 'supplier_failed', `${res.code}: ${res.message}`);
+      return { failed: true, message: `${item.productName}: ${res.code} — ${res.message}` };
+    }
+    const now = new Date();
+    await prisma.stockItem.createMany({
+      data: res.accounts.map((content) => ({ productId: item.productId, content, isSold: true, soldAt: now, orderItemId: item.id })),
+    });
+    // Record the real purchase cost so profit reports stay exact.
+    if (res.unitCost != null) await prisma.orderItem.update({ where: { id: item.id }, data: { unitCost: res.unitCost } }).catch(() => {});
+    await logEvent(order.id, 'note', `bought from supplier: order ${res.supplierOrderId || '?'}${res.test ? ' (TEST MODE — fake accounts)' : ''}`);
+  }
+  return null;
 }
 
 /**
  * Atomically claim stock and mark an order delivered. Safe against oversell
  * via guarded conditional updates (works under Postgres READ COMMITTED).
  */
-async function fulfillAndDeliver(orderId) {
+export async function fulfillAndDeliver(orderId) {
   // Load order with items
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -650,10 +695,44 @@ async function fulfillAndDeliver(orderId) {
 
   const deliveredItems = [];
   let outOfStock = false;
+  let supplierFailure = null;
 
-  await prisma.$transaction(async (tx) => {
+  if (order.items.some((i) => isSupplierProduct(i.product))) {
+    const sup = await procureSupplierLines(order);
+    if (sup?.pending) {
+      const firstTime = (await prisma.orderEvent.count({ where: { orderId: order.id, type: 'supplier_pending' } })) === 1;
+      if (firstTime) {
+        await sendMessageSafe(
+          order.user.telegramId,
+          `⏳ <b>Payment received — preparing your order</b>\n\nOrder <code>${escapeHtml(order.publicId)}</code> is being processed. Your items will arrive here automatically in a few minutes. 🙏`
+        ).catch(() => {});
+      }
+      return { delivered: false, reason: 'supplier_pending' };
+    }
+    if (sup?.failed) {
+      outOfStock = true;
+      supplierFailure = sup.message;
+    }
+  }
+
+  if (!outOfStock) await prisma.$transaction(async (tx) => {
     for (const item of order.items) {
       const rendered = { ...item, stock: [], deliveredContent: '' };
+
+      // Supplier lines were bought above and their accounts are already
+      // attached to this order line — just read them back.
+      if (isSupplierProduct(item.product)) {
+        const bought = await tx.stockItem.findMany({
+          where: { orderItemId: item.id },
+          orderBy: { id: 'asc' },
+          take: item.quantity,
+          select: { id: true, content: true },
+        });
+        if (bought.length < item.quantity) throw new Error('OUT_OF_STOCK_AT_DELIVERY');
+        rendered.stock = bought;
+        deliveredItems.push(rendered);
+        continue;
+      }
 
       // The product row can be gone (admin deleted it while this order was
       // still pending). Route to the manual-action path rather than crashing:
@@ -725,11 +804,15 @@ async function fulfillAndDeliver(orderId) {
   });
 
   if (outOfStock) {
-    await logEvent(order.id, 'note', 'stock depleted at delivery — needs manual action');
+    await logEvent(order.id, 'note', supplierFailure ? `supplier could not fulfil — ${supplierFailure}` : 'stock depleted at delivery — needs manual action');
     await prisma.order.update({ where: { id: order.id }, data: { status: 'PAID' } }).catch(() => {});
     await sendOutOfStockApology({ ...order }).catch(() => {});
+    // Balance payments are refunded automatically by payWithBalance.
+    const action = order.method === 'BALANCE' ? "The customer's balance is refunded automatically." : 'Please fulfil or refund manually.';
     await notifyAdmins(
-      `⚠️ <b>Order ${order.publicId}</b> was PAID but stock ran out at delivery. Please fulfil or refund manually.`
+      supplierFailure
+        ? `⚠️ <b>Order ${order.publicId}</b>: the supplier could not fulfil it.\n<code>${escapeHtml(supplierFailure)}</code>\n${action}`
+        : `⚠️ <b>Order ${order.publicId}</b> was PAID but stock ran out at delivery. ${action}`
     ).catch(() => {});
     return { delivered: false, reason: 'out_of_stock' };
   }

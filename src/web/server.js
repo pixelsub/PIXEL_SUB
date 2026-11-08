@@ -16,6 +16,7 @@ import settingsRoutes from './routes/settings.js';
 import broadcastRoutes from './routes/broadcast.js';
 import apiKeyRoutes from './routes/api_keys.js';
 import publicApiRoutes from './routes/public_api.js';
+import supplierRoutes from './routes/suppliers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, '../../public');
@@ -42,6 +43,7 @@ export function createServer() {
   app.use('/api/settings', settingsRoutes);
   app.use('/api/broadcast', broadcastRoutes);
   app.use('/api/api-keys', apiKeyRoutes);
+  app.use('/api/suppliers', supplierRoutes);
 
   // Public reseller API (API-key auth, read-only catalog + live stock)
   app.use('/api/v1', publicApiRoutes);

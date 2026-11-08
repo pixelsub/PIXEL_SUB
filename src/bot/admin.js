@@ -4,6 +4,7 @@ import prisma from '../db.js';
 import logger from '../logger.js';
 import config from '../config.js';
 import { money, num, escapeHtml, sleep, chunk } from '../utils.js';
+import { stockOf } from '../services/stock.js';
 import { sendMessageSafe } from './delivery.js';
 import { approveManualPayment, declineManualPayment } from '../services/orders.js';
 import { bot } from './instance.js';
@@ -220,7 +221,7 @@ async function listProducts(ctx) {
   });
   const kb = new InlineKeyboard();
   for (const p of products) {
-    const stock = p.usesStock ? `📦${p._count.stock}` : '♾️';
+    const stock = p.usesStock ? `${p.supplierId ? '🚚' : '📦'}${stockOf(p)}` : '♾️';
     const vis = p.isActive ? '' : '🚫';
     kb.text(`${vis}${emojiPlain(p.emoji)} ${p.name} · ${money(num(p.price))} · ${stock}`, `a:prod:${p.id}`).row();
   }
@@ -251,12 +252,12 @@ async function showProduct(ctx, id) {
     `💵 Price: <b>${money(price)}</b>\n` +
     `🏷 Cost: <b>${cost > 0 ? money(cost) : '—'}</b>\n` +
     marginLine +
-    `${p.usesStock ? `📦 In stock: <b>${p._count.stock}</b> · Sold: <b>${sold}</b>` : '♾️ Unlimited (fixed content)'}\n` +
+    `${p.usesStock ? `${p.supplierId ? '🚚 Supplier stock' : '📦 In stock'}: <b>${stockOf(p)}</b> · Sold: <b>${sold}</b>` : '♾️ Unlimited (fixed content)'}\n` +
     `👁 Visible in shop: <b>${p.isActive ? 'Yes ✅' : 'No 🚫'}</b>\n` +
     (p.description ? `\n${escapeHtml(p.description)}` : '');
 
   const kb = new InlineKeyboard();
-  if (p.usesStock) kb.text('📦 View Stock', `a:pstock:${p.id}`).text('➕ Add Stock', `a:paddstock:${p.id}`).row();
+  if (p.usesStock && !p.supplierId) kb.text('📦 View Stock', `a:pstock:${p.id}`).text('➕ Add Stock', `a:paddstock:${p.id}`).row();
   kb.text('💵 Edit Price', `a:pprice:${p.id}`).text('🏷 Edit Cost', `a:pcost:${p.id}`).row();
   kb.text('🎨 Edit Emoji', `a:pemoji:${p.id}`).text(p.isActive ? '🚫 Hide' : '✅ Show', `a:ptoggle:${p.id}`).row();
   kb.text('🗑 Delete', `a:pdel:${p.id}`).row();

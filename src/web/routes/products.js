@@ -11,6 +11,7 @@ function emojiFromBody(b, fallback) {
 import prisma from '../../db.js';
 import { requireAuth } from '../auth.js';
 import { num } from '../../utils.js';
+import { stockOf } from '../../services/stock.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -30,7 +31,10 @@ function serializeProduct(p) {
     sortOrder: p.sortOrder,
     usesStock: p.usesStock,
     fixedContent: p.fixedContent,
-    stock: p._count ? p._count.stock : undefined,
+    stock: p._count ? stockOf(p) : undefined,
+    // Supplier-backed products: price/stock are managed by the supplier sync.
+    supplierId: p.supplierId ?? null,
+    supplierName: p.supplier?.name ?? null,
     createdAt: p.createdAt,
   };
 }
@@ -41,6 +45,7 @@ router.get('/', async (req, res) => {
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
     include: {
       category: true,
+      supplier: { select: { name: true } },
       _count: { select: { stock: { where: { isSold: false } } } },
     },
   });

@@ -8,6 +8,7 @@
     orders: { title: 'Orders', render: Views.orders },
     users: { title: 'Customers', render: Views.users },
     broadcast: { title: 'Broadcast', render: Views.broadcast },
+    suppliers: { title: 'Suppliers', render: Views.suppliers },
     api: { title: 'Reseller API', render: Views.apiKeys },
     settings: { title: 'Settings', render: Views.settings },
   };

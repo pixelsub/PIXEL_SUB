@@ -57,15 +57,43 @@ model Product {
   sortOrder    Int      @default(0)
   usesStock    Boolean  @default(true)
   fixedContent String   @default("")
+  supplierId        Int?
+  supplierVariantId String?
+  supplierPrice     Float?
+  supplierStock     Int?
+  supplierMinQty    Int?
+  supplierMaxQty    Int?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   category   Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  supplier   Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   stock      StockItem[]
   orderItems OrderItem[]
 
   @@index([isActive])
   @@index([categoryId])
+  @@index([supplierId])
+}
+
+model Supplier {
+  id            Int       @id @default(autoincrement())
+  name          String
+  type          String    @default("tokopremium")
+  baseUrl       String
+  apiKeyEnc     String
+  keyHint       String    @default("")
+  currency      String    @default("IDR")
+  rate          Float     @default(1)
+  markupPct     Float     @default(20)
+  isActive      Boolean   @default(true)
+  balance       Float?
+  lastSyncAt    DateTime?
+  lastSyncError String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  products Product[]
 }
 
 model StockItem {

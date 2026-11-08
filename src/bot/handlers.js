@@ -22,6 +22,7 @@ import {
   statusEmoji,
 } from './keyboards.js';
 import { showAdminMenu } from './admin.js';
+import { STOCK_COUNT, stockOf } from '../services/stock.js';
 
 // ---------- helpers ----------
 
@@ -54,10 +55,10 @@ async function getActiveProducts() {
   const products = await prisma.product.findMany({
     where: { isActive: true },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-    include: { _count: { select: { stock: { where: { isSold: false } } } } },
+    include: STOCK_COUNT,
   });
   return products
-    .map((p) => ({ ...p, available: p._count.stock }))
+    .map((p) => ({ ...p, available: stockOf(p) }))
     // Sold-out items sink to the bottom so customers meet what they can
     // actually buy first. Array#sort is stable, so the configured sortOrder
     // still decides the order inside each group.
@@ -67,10 +68,10 @@ async function getActiveProducts() {
 async function getProductWithStock(id) {
   const p = await prisma.product.findUnique({
     where: { id },
-    include: { _count: { select: { stock: { where: { isSold: false } } } } },
+    include: STOCK_COUNT,
   });
   if (!p) return null;
-  return { ...p, available: p._count.stock };
+  return { ...p, available: stockOf(p) };
 }
 
 async function showMainMenu(ctx) {
@@ -236,8 +237,9 @@ async function doPayWithBalance(ctx, productId, qty) {
 
   try {
     await payWithBalance({ user: ctx.dbUser, product, quantity: qty });
-    // sendDelivery already pushed the goods. Delete the interim "processing"
-    // bubble so the chat stays clean — the delivery message is confirmation enough.
+    // sendDelivery already pushed the goods (or, for a supplier order still
+    // processing, the "preparing your order" notice). Delete the interim
+    // bubble so the chat stays clean.
     if (processing) await ctx.api.deleteMessage(ctx.chat.id, processing.message_id).catch(() => {});
   } catch (e) {
     if (processing) await ctx.api.deleteMessage(ctx.chat.id, processing.message_id).catch(() => {});

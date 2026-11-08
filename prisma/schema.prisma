@@ -68,15 +68,50 @@ model Product {
   usesStock   Boolean  @default(true)
   // Delivered when usesStock = false (e.g. instructions), supports {order_id}
   fixedContent String  @default("")
+  // Supplier-backed product: stock and price come from the supplier's API
+  // (synced periodically) and each sale is bought from the supplier at
+  // delivery time. All null for the shop's own products.
+  supplierId        Int?
+  supplierVariantId String?
+  supplierPrice     Decimal? @db.Decimal(14, 2) // in the supplier's currency
+  supplierStock     Int?
+  supplierMinQty    Int?
+  supplierMaxQty    Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   category  Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  supplier  Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   stock     StockItem[]
   orderItems OrderItem[]
 
   @@index([isActive])
   @@index([categoryId])
+  @@index([supplierId])
+}
+
+// ------------------------------------------------------------------
+// Upstream suppliers whose API we resell (live stock + auto-ordering)
+// ------------------------------------------------------------------
+model Supplier {
+  id            Int       @id @default(autoincrement())
+  name          String
+  type          String    @default("tokopremium") // connector in src/suppliers/
+  baseUrl       String
+  apiKeyEnc     String    // AES-256-GCM encrypted; never returned by the admin API
+  keyHint       String    @default("") // last 4 chars, to recognise the key
+  currency      String    @default("IDR")
+  // Supplier currency units per 1 unit of the shop currency (e.g. 16500 IDR = 1 USD).
+  rate          Decimal   @default(1) @db.Decimal(14, 4)
+  markupPct     Decimal   @default(20) @db.Decimal(7, 2)
+  isActive      Boolean   @default(true)
+  balance       Decimal?  @db.Decimal(16, 2) // last known balance at the supplier
+  lastSyncAt    DateTime?
+  lastSyncError String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  products Product[]
 }
 
 // ------------------------------------------------------------------
