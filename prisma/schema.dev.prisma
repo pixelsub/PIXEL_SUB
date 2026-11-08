@@ -26,7 +26,8 @@ model User {
   lastSeenAt   DateTime  @default(now())
   createdAt    DateTime  @default(now())
 
-  orders Order[]
+  orders  Order[]
+  apiKeys ApiKey[]
 
   @@index([createdAt])
   @@index([isBanned])
@@ -102,6 +103,8 @@ model Order {
   payCurrency    String?
   payAmount      String?
   network        String?
+  resellerRef    String?
+  apiKeyId       Int?
 
   paidAt         DateTime?
   deliveredAt    DateTime?
@@ -110,9 +113,11 @@ model Order {
   updatedAt      DateTime  @updatedAt
 
   user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKey ApiKey?      @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
   items  OrderItem[]
   events OrderEvent[]
 
+  @@index([apiKeyId])
   @@index([status])
   @@index([createdAt])
   @@index([userId])
@@ -164,6 +169,29 @@ model AdminAccount {
   role         String    @default("owner")
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
+}
+
+model ApiKey {
+  id         Int       @id @default(autoincrement())
+  name       String
+  keyPrefix  String
+  keyHash    String    @unique
+  isActive   Boolean   @default(true)
+  userId     Int?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  orders Order[]
+}
+
+model ResellerOrderRef {
+  userId    Int
+  reference String
+  orderId   Int?
+  createdAt DateTime  @default(now())
+
+  @@id([userId, reference])
 }
 
 model Broadcast {

@@ -27,7 +27,8 @@ model User {
   lastSeenAt   DateTime  @default(now())
   createdAt    DateTime  @default(now())
 
-  orders Order[]
+  orders  Order[]
+  apiKeys ApiKey[]
 
   @@index([createdAt])
   @@index([isBanned])
@@ -138,6 +139,11 @@ model Order {
   payCurrency    String?       // crypto the user actually paid in
   payAmount      String?       // crypto amount
   network        String?
+  // Reseller-supplied order reference (API orders). Uniqueness is enforced by
+  // ResellerOrderRef so a retried request can never buy twice.
+  resellerRef    String?
+  // Set when the order was placed through the reseller API with this key.
+  apiKeyId       Int?
 
   paidAt         DateTime?
   deliveredAt    DateTime?
@@ -146,9 +152,11 @@ model Order {
   updatedAt      DateTime      @updatedAt
 
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKey     ApiKey?     @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
   items      OrderItem[]
   events     OrderEvent[]
 
+  @@index([apiKeyId])
   @@index([status])
   @@index([createdAt])
   @@index([userId])
@@ -208,6 +216,39 @@ model AdminAccount {
   role         String   @default("owner") // owner | staff
   lastLoginAt  DateTime?
   createdAt    DateTime @default(now())
+}
+
+// ------------------------------------------------------------------
+// Reseller API keys — let other sellers pull the catalog + live stock
+// into their own stores. Only a SHA-256 hash of the key is stored.
+// ------------------------------------------------------------------
+model ApiKey {
+  id         Int       @id @default(autoincrement())
+  name       String    // who this key belongs to, e.g. "Rahim's store"
+  keyPrefix  String    // first chars of the key, shown in the panel to identify it
+  keyHash    String    @unique
+  isActive   Boolean   @default(true)
+  // Reseller's Telegram account. API orders are paid from this user's wallet
+  // balance and appear in their order history. Null = catalog/stock only.
+  userId     Int?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  orders Order[]
+}
+
+// Idempotency lock for reseller API orders: the reference is claimed here
+// (primary key) before any money moves, so concurrent retries can't double-buy.
+// A separate table rather than a unique index on Order, because adding a
+// unique index to an existing table makes `prisma db push` refuse at boot.
+model ResellerOrderRef {
+  userId    Int
+  reference String
+  orderId   Int?      // set once the order exists
+  createdAt DateTime  @default(now())
+
+  @@id([userId, reference])
 }
 
 // ------------------------------------------------------------------

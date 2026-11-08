@@ -548,7 +548,7 @@ async function creditTopUp(order) {
  * Pay for a product immediately using the user's wallet balance.
  * Deducts balance, creates a PAID order, and delivers right away.
  */
-export async function payWithBalance({ user, product, quantity }) {
+export async function payWithBalance({ user, product, quantity, resellerRef = null, apiKeyId = null }) {
   quantity = Math.max(1, Math.floor(Number(quantity) || 1));
   const unitPrice = num(product.price);
   const total = +(unitPrice * quantity).toFixed(2);
@@ -582,22 +582,31 @@ export async function payWithBalance({ user, product, quantity }) {
     throw err;
   }
 
-  const order = await prisma.order.create({
-    data: {
-      publicId: shortId('ORD'),
-      userId: user.id,
-      status: 'PAID',
-      method: 'BALANCE',
-      kind: 'PURCHASE',
-      amount: total,
-      currency: config.shop.currency,
-      paidAt: new Date(),
-      items: {
-        create: [{ productId: product.id, productName: product.name, emoji: product.emoji, unitPrice, unitCost: num(product.cost), quantity, lineTotal: total }],
+  let order;
+  try {
+    order = await prisma.order.create({
+      data: {
+        publicId: shortId('ORD'),
+        userId: user.id,
+        status: 'PAID',
+        method: 'BALANCE',
+        kind: 'PURCHASE',
+        amount: total,
+        currency: config.shop.currency,
+        paidAt: new Date(),
+        resellerRef,
+        apiKeyId,
+        items: {
+          create: [{ productId: product.id, productName: product.name, emoji: product.emoji, unitPrice, unitCost: num(product.cost), quantity, lineTotal: total }],
+        },
       },
-    },
-  });
-  await logEvent(order.id, 'payment_received', 'paid with wallet balance');
+    });
+  } catch (e) {
+    // Balance was already taken above — give it back before surfacing the error.
+    await prisma.user.update({ where: { id: user.id }, data: { balance: { increment: total } } }).catch(() => {});
+    throw e;
+  }
+  await logEvent(order.id, 'payment_received', apiKeyId !== null ? `paid with wallet balance (reseller API${resellerRef !== null ? `, ref ${resellerRef}` : ''})` : 'paid with wallet balance');
 
   let result;
   try {

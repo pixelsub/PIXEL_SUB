@@ -14,6 +14,8 @@ import orderRoutes from './routes/orders.js';
 import userRoutes from './routes/users.js';
 import settingsRoutes from './routes/settings.js';
 import broadcastRoutes from './routes/broadcast.js';
+import apiKeyRoutes from './routes/api_keys.js';
+import publicApiRoutes from './routes/public_api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, '../../public');
@@ -39,6 +41,10 @@ export function createServer() {
   app.use('/api/users', userRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/broadcast', broadcastRoutes);
+  app.use('/api/api-keys', apiKeyRoutes);
+
+  // Public reseller API (API-key auth, read-only catalog + live stock)
+  app.use('/api/v1', publicApiRoutes);
 
   // Static admin panel
   app.use(express.static(publicDir, { extensions: ['html'] }));

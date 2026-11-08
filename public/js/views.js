@@ -566,6 +566,243 @@ const Views = (() => {
     mount(el('div', {}, [el('div', { class: 'grid cols-2' }, [content, health]), el('div', { class: 'modal-foot', style: 'margin-top:18px' }, [saveBtn])]));
   }
 
+  // ============================ RESELLER API ============================
+  async function apiKeys() {
+    loading();
+    let data;
+    try { data = await API.get('/api-keys'); } catch (e) { return mount(errorBox(e)); }
+    const base = data.baseUrl;
+
+    const nameInput = el('input', { placeholder: 'Reseller / store name, e.g. Rahim Store' });
+    const tgInput = el('input', { placeholder: 'Reseller Telegram ID (optional — enables ordering)', inputmode: 'numeric' });
+    const createBtn = el('button', { class: 'btn btn-primary', html: '＋ Create API key' });
+    createBtn.onclick = async () => {
+      const name = nameInput.value.trim();
+      if (!name) return toast('Enter a name for this key', 'bad');
+      createBtn.disabled = true;
+      try {
+        const r = await API.post('/api-keys', { name, telegramId: tgInput.value.trim() });
+        showNewKey(r.apiKey, r.key.name);
+      } catch (e) { toast(e.message, 'bad'); createBtn.disabled = false; }
+    };
+
+    const createCard = el('div', { class: 'card' }, [
+      el('div', { class: 'card-head' }, [el('h3', { text: '🔑 New reseller key' }), el('div', { class: 'sub', text: 'One key per reseller, so you can revoke them individually' })]),
+      el('div', { style: 'display:flex;flex-direction:column;gap:10px' }, [nameInput, tgInput, el('div', {}, [createBtn])]),
+      el('div', { class: 'hint', style: 'margin-top:10px', text: 'With a Telegram ID linked, the reseller can order through the API, paid from that account’s wallet balance. They top up in the bot, or you add balance from the reseller’s Details page. Without one, the key can only read products and stock.' }),
+    ]);
+
+    const keysBody = data.keys.length
+      ? (() => {
+          const t = el('table');
+          t.appendChild(el('thead', {}, [el('tr', {}, ['Name', 'Key', 'Reseller account', 'API sales', 'Status', 'Last used', ''].map((h) => el('th', { text: h })))]));
+          const tb = el('tbody');
+          for (const k of data.keys) {
+            const toggle = el('button', { class: 'btn btn-sm', text: k.isActive ? 'Disable' : 'Enable', onclick: async () => {
+              try { await API.put(`/api-keys/${k.id}`, { isActive: !k.isActive }); toast(k.isActive ? 'Key disabled' : 'Key enabled'); apiKeys(); } catch (e) { toast(e.message, 'bad'); }
+            } });
+            const del = el('button', { class: 'btn btn-sm btn-danger', text: 'Delete', onclick: async () => {
+              if (!(await confirmDialog({ title: 'Delete API key?', message: `“${k.name}” will stop receiving your products and stock immediately.`, confirmText: 'Delete', danger: true }))) return;
+              try { await API.del(`/api-keys/${k.id}`); toast('Key deleted'); apiKeys(); } catch (e) { toast(e.message, 'bad'); }
+            } });
+            const link = el('button', { class: 'btn btn-sm', text: k.user ? 'Unlink' : 'Link account', onclick: () => linkKeyModal(k) });
+            const account = k.user
+              ? el('div', {}, [
+                  el('div', { text: k.user.username ? '@' + k.user.username : (k.user.firstName || 'User') }),
+                  el('div', { class: 't-muted mono', text: `${k.user.telegramId} · ${money(k.user.balance)}` }),
+                ])
+              : el('span', { class: 't-muted', text: 'not linked (read-only)' });
+            const open = () => resellerDetail(k.id);
+            tb.appendChild(el('tr', {}, [
+              el('td', {}, [el('a', { class: 't-strong', style: 'cursor:pointer;text-decoration:underline', text: k.name, onclick: open })]),
+              el('td', { class: 'mono', text: k.keyPrefix + '…' }),
+              el('td', {}, [account]),
+              el('td', {}, [el('div', { class: 't-strong', text: money(k.stats.revenue) }), el('div', { class: 't-muted', style: 'font-size:11px', text: `${k.stats.orders} orders` })]),
+              el('td', {}, [el('span', { class: `badge ${k.isActive ? 'DELIVERED' : 'CANCELLED'}`, text: k.isActive ? 'active' : 'disabled' })]),
+              el('td', { text: k.lastUsedAt ? timeAgo(k.lastUsedAt) : 'never' }),
+              el('td', {}, [el('div', { class: 'row-flex', style: 'gap:6px' }, [el('button', { class: 'btn btn-sm btn-primary', text: 'Details', onclick: open }), link, toggle, del])]),
+            ]));
+          }
+          t.appendChild(tb);
+          return el('div', { class: 'table-wrap' }, [t]);
+        })()
+      : emptyState('🔑', 'No API keys yet. Create one for each reseller.');
+
+    const keysCard = el('div', { class: 'card', style: 'margin-top:18px' }, [
+      el('div', { class: 'card-head' }, [el('h3', { text: 'Reseller keys' })]),
+      keysBody,
+    ]);
+
+    const example = `curl -H "X-API-Key: YOUR_KEY" ${base}/products`;
+    const docsCard = el('div', { class: 'card' }, [
+      el('div', { class: 'card-head' }, [el('h3', { text: '📘 How resellers connect' })]),
+      el('div', { class: 'field' }, [el('span', { text: 'API base URL' }),
+        el('div', { class: 'row-flex' }, [el('input', { value: base, readonly: true, class: 'mono' }), el('button', { class: 'btn btn-sm', text: 'Copy', onclick: () => copy(base) })])]),
+      el('div', { class: 'kv', style: 'margin-top:12px' }, [
+        el('div', { class: 'k mono', text: 'GET /products' }), el('div', { class: 'v', text: 'All active products with live stock' }),
+        el('div', { class: 'k mono', text: 'GET /products/:id' }), el('div', { class: 'v', text: 'A single product' }),
+        el('div', { class: 'k mono', text: 'GET /stock' }), el('div', { class: 'v', text: 'Just { productId: stock } — cheap to poll' }),
+        el('div', { class: 'k mono', text: 'GET /balance' }), el('div', { class: 'v', text: 'Reseller wallet balance (linked keys)' }),
+        el('div', { class: 'k mono', text: 'POST /orders' }), el('div', { class: 'v', text: '{ productId, quantity, reference } → pays from balance, returns the codes instantly' }),
+        el('div', { class: 'k mono', text: 'GET /orders[/:id]' }), el('div', { class: 'v', text: 'Order history / one order (by ORD id or reference)' }),
+      ]),
+      el('div', { class: 'hint', style: 'margin-top:12px', text: 'Send the key in the X-API-Key header. Limit: 120 requests/minute per key. stock is null for unlimited products. Reusing the same reference returns the original order instead of buying twice.' }),
+      el('div', { class: 'field', style: 'margin-top:12px' }, [el('span', { text: 'Example' }),
+        el('div', { class: 'row-flex' }, [el('input', { value: example, readonly: true, class: 'mono' }), el('button', { class: 'btn btn-sm', text: 'Copy', onclick: () => copy(example) })])]),
+    ]);
+
+    mount(el('div', {}, [el('div', { class: 'grid cols-2' }, [createCard, docsCard]), keysCard]));
+  }
+
+  // One reseller: account, wallet, API sales stats, top products, order history.
+  const resellerState = { id: null, source: 'api', page: 1 };
+  async function resellerDetail(id, opts = {}) {
+    if (resellerState.id !== id) Object.assign(resellerState, { id, source: 'api', page: 1 });
+    Object.assign(resellerState, opts);
+    loading();
+    let d;
+    try { d = await API.get(`/api-keys/${id}/details?source=${resellerState.source}&page=${resellerState.page}`); }
+    catch (e) { return mount(errorBox(e)); }
+    const k = d.key; const a = d.account; const s = d.stats;
+    const reload = () => resellerDetail(id);
+
+    const head = el('div', { class: 'toolbar' }, [
+      el('button', { class: 'btn btn-sm', text: '‹ All resellers', onclick: () => apiKeys() }),
+      el('h2', { style: 'font-family:var(--font-head);margin:0 0 0 8px', text: k.name }),
+      el('span', { class: `badge ${k.isActive ? 'DELIVERED' : 'CANCELLED'}`, text: k.isActive ? 'key active' : 'key disabled' }),
+      a?.isBanned ? el('span', { class: 'badge FAILED', text: 'account banned' }) : null,
+    ]);
+
+    const tiles = el('div', { class: 'grid cols-4', style: 'margin-top:14px' }, [
+      statTile({ icon: '💳', label: 'Wallet Balance', value: a ? money(a.balance) : '—', delta: a ? 'available to order' : 'no account linked', tint: 'linear-gradient(135deg,#37d399,#22d3ee)' }),
+      statTile({ icon: '💰', label: 'API Sales', value: money(s.revenue), delta: `+${money(s.todayRevenue)} today`, tint: 'linear-gradient(135deg,#6c5cff,#a855f7)' }),
+      statTile({ icon: '🧾', label: 'API Orders', value: num(s.orders), delta: `${num(s.units)} units · ${num(s.last30Orders)} in 30 days`, tint: 'linear-gradient(135deg,#22d3ee,#6c5cff)' }),
+      statTile({ icon: s.profit >= 0 ? '📈' : '📉', label: 'Profit from Reseller', value: money(s.profit), delta: `${money(s.last30Revenue)} sales in 30 days`, tint: 'linear-gradient(135deg,#37d399,#6c5cff)' }),
+    ]);
+
+    // ---- Account card (wallet + actions) ----
+    let accountCard;
+    if (a) {
+      const balInput = el('input', { type: 'number', step: '0.01', placeholder: 'e.g. 50 or -10', style: 'max-width:140px' });
+      const msgArea = el('textarea', { placeholder: 'Message this reseller on Telegram…', style: 'min-height:60px' });
+      accountCard = el('div', { class: 'card' }, [
+        el('div', { class: 'card-head' }, [el('h3', { text: '👤 Reseller account' })]),
+        el('div', { class: 'kv' }, [
+          el('div', { class: 'k', text: 'Name' }), el('div', { class: 'v', text: [a.firstName, a.lastName].filter(Boolean).join(' ') || '—' }),
+          el('div', { class: 'k', text: 'Username' }), el('div', { class: 'v', text: a.username ? '@' + a.username : '—' }),
+          el('div', { class: 'k', text: 'Telegram ID' }), el('div', { class: 'v mono', text: a.telegramId }),
+          el('div', { class: 'k', text: 'Balance' }), el('div', { class: 'v t-strong', text: money(a.balance) }),
+          el('div', { class: 'k', text: 'Total topped up' }), el('div', { class: 'v', text: s.topups ? `${money(s.topups.total)} (${s.topups.count}×)` : '—' }),
+          el('div', { class: 'k', text: 'Total spent (bot + API)' }), el('div', { class: 'v', text: money(a.totalSpent) }),
+          el('div', { class: 'k', text: 'Last seen in bot' }), el('div', { class: 'v', text: timeAgo(a.lastSeenAt) }),
+          el('div', { class: 'k', text: 'Key last used' }), el('div', { class: 'v', text: k.lastUsedAt ? timeAgo(k.lastUsedAt) : 'never' }),
+          el('div', { class: 'k', text: 'Key created' }), el('div', { class: 'v', text: dateTime(k.createdAt) }),
+        ]),
+        el('div', { class: 'row-flex', style: 'gap:8px;flex-wrap:wrap;margin-top:12px' }, [
+          balInput,
+          el('button', { class: 'btn btn-sm btn-primary', html: '💰 Adjust balance', onclick: async () => {
+            const delta = parseFloat(balInput.value);
+            if (!isFinite(delta) || delta === 0) return toast('Enter an amount (negative to deduct)', 'bad');
+            try { const r = await API.post(`/users/${a.id}/balance`, { delta }); toast(`New balance: ${money(r.balance)}`); reload(); } catch (e) { toast(e.message, 'bad'); }
+          } }),
+          el('button', { class: 'btn btn-sm', text: k.isActive ? 'Disable key' : 'Enable key', onclick: async () => {
+            try { await API.put(`/api-keys/${k.id}`, { isActive: !k.isActive }); toast(k.isActive ? 'Key disabled' : 'Key enabled'); reload(); } catch (e) { toast(e.message, 'bad'); }
+          } }),
+          el('button', { class: `btn btn-sm ${a.isBanned ? 'btn-good' : 'btn-danger'}`, html: a.isBanned ? '✓ Unban account' : '⛔ Ban account', onclick: async () => {
+            try { await API.post(`/users/${a.id}/ban`, { banned: !a.isBanned }); toast(a.isBanned ? 'Account unbanned' : 'Account banned — API ordering blocked'); reload(); } catch (e) { toast(e.message, 'bad'); }
+          } }),
+        ]),
+        el('div', { style: 'margin-top:12px' }, [msgArea, el('div', { style: 'margin-top:8px' }, [el('button', { class: 'btn btn-sm', html: '📨 Send message', onclick: async () => {
+          const text = msgArea.value.trim(); if (!text) return toast('Type a message', 'bad');
+          try { const r = await API.post(`/users/${a.id}/message`, { text }); toast(r.ok ? 'Message sent' : (r.error || 'Failed'), r.ok ? 'good' : 'bad'); if (r.ok) msgArea.value = ''; } catch (e) { toast(e.message, 'bad'); }
+        } })])]),
+      ]);
+    } else {
+      accountCard = el('div', { class: 'card' }, [
+        el('div', { class: 'card-head' }, [el('h3', { text: '👤 Reseller account' })]),
+        emptyState('🔗', 'No Telegram account linked — this key can only read products and stock.'),
+        el('div', { style: 'text-align:center' }, [el('button', { class: 'btn btn-primary btn-sm', text: 'Link account', onclick: () => linkKeyModal(k, reload) })]),
+      ]);
+    }
+
+    // ---- Top products ----
+    const topCard = el('div', { class: 'card' }, [
+      el('div', { class: 'card-head' }, [el('h3', { text: '🏆 Top products via API' }), s.notDelivered ? el('div', { class: 'sub', text: `${s.notDelivered} API order(s) not delivered` }) : null]),
+      d.topProducts.length
+        ? el('div', { class: 'table-wrap' }, [(() => {
+            const t = el('table');
+            t.appendChild(el('thead', {}, [el('tr', {}, ['Product', 'Units', 'Sales'].map((h) => el('th', { text: h })))]));
+            t.appendChild(el('tbody', {}, d.topProducts.map((p) => el('tr', {}, [el('td', { text: p.name }), el('td', { text: num(p.units) }), el('td', { class: 't-strong', text: money(p.revenue) })]))));
+            return t;
+          })()])
+        : emptyState('📦', 'No API sales yet'),
+    ]);
+
+    // ---- Orders ----
+    const tabs = [['api', 'API orders'], ['all', 'All activity'], ['topup', 'Top-ups']];
+    const seg = el('div', { class: 'seg' }, tabs.map(([v, label]) => el('button', {
+      class: resellerState.source === v ? 'active' : '', text: label,
+      disabled: v !== 'api' && !a ? true : null,
+      onclick: () => resellerDetail(id, { source: v, page: 1 }),
+    })));
+    const ordersBody = d.orders.length
+      ? el('div', { class: 'table-wrap' }, [(() => {
+          const t = el('table');
+          t.appendChild(el('thead', {}, [el('tr', {}, ['Order', 'Source', 'Reference', 'Items', 'Amount', 'Status', 'When'].map((h) => el('th', { text: h })))]));
+          const tb = el('tbody');
+          for (const o of d.orders) {
+            tb.appendChild(el('tr', { style: 'cursor:pointer', onclick: () => orderDetail(o.id) }, [
+              el('td', { class: 'mono t-strong', text: o.publicId }),
+              el('td', {}, [el('span', { class: `badge ${o.source === 'API' ? 'PAID' : o.source === 'Top-up' ? 'DELIVERED' : 'PENDING'}`, text: o.source })]),
+              el('td', { class: 'mono t-muted', text: o.reference || '—' }),
+              el('td', { class: 't-muted', text: truncate(o.summary, 40) }),
+              el('td', { class: 't-strong', text: money(o.amount, o.currency) }),
+              el('td', {}, [badge(o.status)]),
+              el('td', { class: 't-muted', text: dateTime(o.createdAt) }),
+            ]));
+          }
+          t.appendChild(tb);
+          return t;
+        })()])
+      : emptyState('🧾', 'No orders here yet');
+    const ordersCard = el('div', { class: 'card', style: 'margin-top:18px' }, [
+      el('div', { class: 'card-head' }, [el('h3', { text: '🧾 Orders' }), seg]),
+      ordersBody,
+      pager(d, (p) => resellerDetail(id, { page: p })),
+    ]);
+
+    mount(el('div', {}, [head, tiles, el('div', { class: 'grid cols-2', style: 'margin-top:18px' }, [accountCard, topCard]), ordersCard]));
+  }
+
+  function linkKeyModal(k, after) {
+    const save = async (telegramId) => {
+      try { await API.put(`/api-keys/${k.id}`, { telegramId }); closeModal(); toast(telegramId ? 'Account linked — ordering enabled' : 'Account unlinked — key is read-only'); (after || apiKeys)(); }
+      catch (e) { toast(e.message, 'bad'); }
+    };
+    if (k.user) {
+      return confirmDialog({ title: 'Unlink reseller account?', message: `“${k.name}” will no longer be able to place orders. Products and stock stay readable.`, confirmText: 'Unlink', danger: true })
+        .then((ok) => ok && save(''));
+    }
+    const input = el('input', { placeholder: 'Telegram numeric ID, e.g. 123456789', inputmode: 'numeric' });
+    modal({
+      title: 'Link reseller account',
+      subtitle: `Orders from “${k.name}” will be paid from this account’s wallet balance.`,
+      body: el('div', {}, [input, el('div', { class: 'hint', style: 'margin-top:8px', text: 'The reseller must have started the bot at least once.' })]),
+      footer: [el('button', { class: 'btn btn-primary', text: 'Link', onclick: () => { const v = input.value.trim(); if (!v) return toast('Enter a Telegram ID', 'bad'); save(v); } })],
+    });
+  }
+
+  function showNewKey(rawKey, name) {
+    modal({
+      title: 'API key created',
+      subtitle: `For ${name}. Copy it now — it will not be shown again.`,
+      body: el('div', {}, [
+        el('div', { class: 'row-flex' }, [el('input', { value: rawKey, readonly: true, class: 'mono' }), el('button', { class: 'btn btn-sm', text: 'Copy', onclick: () => copy(rawKey) })]),
+      ]),
+      footer: [el('button', { class: 'btn btn-primary', text: 'Done', onclick: () => { closeModal(); apiKeys(); } })],
+    });
+  }
+
   function healthPill(ok) { return el('span', { class: `badge ${ok ? 'DELIVERED' : 'FAILED'}`, text: ok ? 'connected' : 'not configured' }); }
 
   // ============================ shared bits ============================
@@ -587,5 +824,5 @@ const Views = (() => {
     ]);
   }
 
-  return { dashboard, products, orders, users, broadcast, settings };
+  return { dashboard, products, orders, users, broadcast, settings, apiKeys };
 })();
