@@ -8,6 +8,7 @@ import { emojiPlain } from '../../emoji.js';
 import { encryptSecret } from '../../services/secrets.js';
 import { stockOf } from '../../services/stock.js';
 import { CONNECTORS, syncSupplier, testSupplier, pricing } from '../../suppliers/index.js';
+import { queueNewProductCheck } from '../../services/channel.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -193,6 +194,7 @@ router.post('/:id/products/select', async (req, res) => {
   if (selected) where.supplierSelected = false; // count only newly added
   else where.supplierSelected = true;
   const r = await prisma.product.updateMany({ where, data: { supplierSelected: selected, isActive: selected } });
+  if (selected && r.count) queueNewProductCheck();
   res.json({ ok: true, count: r.count });
 });
 

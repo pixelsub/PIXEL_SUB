@@ -290,6 +290,29 @@ model ResellerOrderRef {
 }
 
 // ------------------------------------------------------------------
+// Telegram channel posts (daily stock, new products, manual posts).
+// dedupeKey is claimed BEFORE sending, so automatic posts can never go out
+// twice — not after a restart, not with two instances running.
+// ------------------------------------------------------------------
+model ChannelPost {
+  id         Int       @id @default(autoincrement())
+  kind       String    // daily_stock | new_product | product | price_update | sold_out | custom | test
+  dedupeKey  String?   @unique // e.g. "daily:2026-11-08", "new:42"; null for manual posts
+  productId  Int?
+  chatId     String
+  messageIds String    @default("") // comma-separated Telegram message ids
+  status     String    @default("pending") // pending | sent | failed | skipped | unknown | deleted
+  error      String?
+  preview    String    @default("")
+  createdBy  String    @default("auto")
+  createdAt  DateTime  @default(now())
+  sentAt     DateTime?
+
+  @@index([kind, createdAt])
+  @@index([productId])
+}
+
+// ------------------------------------------------------------------
 // Broadcast log
 // ------------------------------------------------------------------
 model Broadcast {

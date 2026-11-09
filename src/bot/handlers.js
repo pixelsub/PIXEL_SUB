@@ -645,7 +645,15 @@ export function registerHandlers(bot) {
     await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
   });
 
-  bot.command('start', showMainMenu);
+  // Deep links from channel posts: t.me/<bot>?start=p_42 opens product 42,
+  // ?start=shop opens the shop. Plain /start shows the main menu as before.
+  bot.command('start', async (ctx) => {
+    const payload = String(ctx.match || '').trim();
+    const m = /^p_(\d+)$/.exec(payload);
+    if (m) return showQuantity(ctx, Number(m[1]));
+    if (payload === 'shop') return showShop(ctx);
+    return showMainMenu(ctx);
+  });
   bot.command('menu', showMainMenu);
   bot.command('shop', showShop);
   bot.command('orders', showOrders);

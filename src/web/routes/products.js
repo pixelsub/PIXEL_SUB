@@ -12,6 +12,7 @@ import prisma from '../../db.js';
 import { requireAuth } from '../auth.js';
 import { num } from '../../utils.js';
 import { stockOf } from '../../services/stock.js';
+import { queueNewProductCheck } from '../../services/channel.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -105,6 +106,7 @@ router.post('/', async (req, res) => {
     },
     include: { category: true, _count: { select: { stock: { where: { isSold: false } } } } },
   });
+  queueNewProductCheck(); // channel announcement (if enabled and in stock)
   res.json({ product: serializeProduct(product) });
 });
 
@@ -132,6 +134,7 @@ router.put('/:id', async (req, res) => {
       data,
       include: { category: true, _count: { select: { stock: { where: { isSold: false } } } } },
     });
+    if (data.isActive) queueNewProductCheck();
     res.json({ product: serializeProduct(product) });
   } catch {
     res.status(404).json({ error: 'Not found' });

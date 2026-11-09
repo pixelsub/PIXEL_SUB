@@ -223,6 +223,24 @@ model ResellerOrderRef {
   @@id([userId, reference])
 }
 
+model ChannelPost {
+  id         Int       @id @default(autoincrement())
+  kind       String
+  dedupeKey  String?   @unique
+  productId  Int?
+  chatId     String
+  messageIds String    @default("")
+  status     String    @default("pending")
+  error      String?
+  preview    String    @default("")
+  createdBy  String    @default("auto")
+  createdAt  DateTime  @default(now())
+  sentAt     DateTime?
+
+  @@index([kind, createdAt])
+  @@index([productId])
+}
+
 model Broadcast {
   id        Int      @id @default(autoincrement())
   text      String

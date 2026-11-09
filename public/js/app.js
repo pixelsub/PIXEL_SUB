@@ -7,6 +7,7 @@
     products: { title: 'Products', render: Views.products },
     orders: { title: 'Orders', render: Views.orders },
     users: { title: 'Customers', render: Views.users },
+    channel: { title: 'Channel Posting', render: Views.channel },
     broadcast: { title: 'Broadcast', render: Views.broadcast },
     suppliers: { title: 'Suppliers', render: Views.suppliers },
     api: { title: 'Reseller API', render: Views.apiKeys },

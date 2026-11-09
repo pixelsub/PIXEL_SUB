@@ -13,6 +13,14 @@ export const DEFAULT_SETTINGS = {
   order_paid_message: '✅ <b>Payment confirmed!</b>\n\nThank you for your purchase. Your items are below. 👇',
   rules_accepted: 'true',
   maintenance_mode: 'false',
+  // Telegram channel auto-posting (see src/services/channel.js)
+  channel_id: '',
+  channel_daily_enabled: 'true',
+  channel_daily_time: '10:00', // Asia/Dhaka
+  channel_daily_show_soldout: 'false',
+  channel_new_enabled: 'true',
+  channel_daily_header: "📦 <b>Today's Stock</b>",
+  channel_footer: '⚡ Instant delivery · 💬 24/7 support\n🛒 Tap <b>Shop Now</b> to order!',
   maintenance_text: '🛠️ The shop is briefly down for maintenance. Please check back soon!',
 };
 

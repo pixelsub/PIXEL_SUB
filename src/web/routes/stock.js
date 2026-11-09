@@ -1,6 +1,7 @@
 import express from 'express';
 import prisma from '../../db.js';
 import { requireAuth } from '../auth.js';
+import { queueNewProductCheck } from '../../services/channel.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -39,6 +40,7 @@ router.post('/product/:productId', async (req, res) => {
     data: lines.map((content) => ({ productId, content })),
   });
   const available = await prisma.stockItem.count({ where: { productId, isSold: false } });
+  queueNewProductCheck(); // a new product becomes announceable once it has stock
   res.json({ ok: true, added: result.count, available });
 });
 

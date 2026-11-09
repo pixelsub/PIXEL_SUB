@@ -5,6 +5,7 @@ import logger from '../logger.js';
 import config from '../config.js';
 import { money, num, escapeHtml, sleep, chunk } from '../utils.js';
 import { stockOf } from '../services/stock.js';
+import { queueNewProductCheck } from '../services/channel.js';
 import { sendMessageSafe } from './delivery.js';
 import { approveManualPayment, declineManualPayment } from '../services/orders.js';
 import { bot } from './instance.js';
@@ -271,6 +272,7 @@ async function toggleProduct(ctx, id) {
   const p = await prisma.product.findUnique({ where: { id } });
   if (!p) return;
   await prisma.product.update({ where: { id }, data: { isActive: !p.isActive } });
+  if (!p.isActive) queueNewProductCheck();
   await ctx.answerCallbackQuery({ text: p.isActive ? 'Hidden from shop 🚫' : 'Now visible ✅' }).catch(() => {});
   await showProduct(ctx, id);
 }
@@ -437,6 +439,7 @@ async function handleAdminText(ctx) {
       const p = await prisma.product.create({
         data: { name: st.draft.name, emoji: st.draft.emoji, price: st.draft.price, cost: st.draft.cost || 0, description: st.draft.description, usesStock: true },
       });
+      queueNewProductCheck(); // announced once it has stock
       clearState(ctx.from.id);
       const c = num(p.cost);
       const marginLine = c > 0
@@ -492,6 +495,7 @@ async function handleAdminText(ctx) {
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     if (!lines.length) { await ctx.reply('❌ Send at least one line.'); return true; }
     await prisma.stockItem.createMany({ data: lines.map((content) => ({ productId: st.productId, content })) });
+    queueNewProductCheck();
     const available = await prisma.stockItem.count({ where: { productId: st.productId, isSold: false } });
     clearState(ctx.from.id);
     await ctx.reply(`✅ Added <b>${lines.length}</b> item(s). Available now: <b>${available}</b>.`, {

@@ -567,6 +567,156 @@ const Views = (() => {
     mount(el('div', {}, [el('div', { class: 'grid cols-2' }, [content, health]), el('div', { class: 'modal-foot', style: 'margin-top:18px' }, [saveBtn])]));
   }
 
+  // ============================ CHANNEL ============================
+  const POST_KIND = { daily_stock: '📦 Today Stock', new_product: '🆕 New product', product: '🛍 Product', price_update: '💲 Price update', sold_out: '❌ Sold out', custom: '✏️ Custom', test: '🧪 Test' };
+  const POST_BADGE = { sent: 'DELIVERED', failed: 'FAILED', pending: 'PENDING', skipped: 'EXPIRED', unknown: 'EXPIRED', deleted: 'CANCELLED' };
+
+  async function channel() {
+    loading();
+    let d, prods;
+    try { [d, prods] = await Promise.all([API.get('/channel'), API.get('/channel/products')]); } catch (e) { return mount(errorBox(e)); }
+    const s = d.settings; const st = d.status;
+    const f = (id) => document.getElementById(id);
+    const run = async (btn, fn) => { btn.disabled = true; try { await fn(); } catch (e) { toast(e.message, 'bad'); } btn.disabled = false; };
+
+    // ---------- settings ----------
+    const sw = (id, on) => `<label class="switch"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}/><span class="track"></span></label>`;
+    const testOut = el('div', { style: 'margin-top:10px' });
+    const testBtn = el('button', { class: 'btn btn-sm', text: '🔌 Test connection' });
+    testBtn.onclick = () => run(testBtn, async () => {
+      testOut.innerHTML = '';
+      const r = await API.post('/channel/test', { channel_id: f('ch-id').value });
+      testOut.appendChild(r.ok
+        ? el('div', { class: `toast ${r.canPost ? 'good' : 'bad'}` }, [el('span', { class: 'tc', text: r.canPost ? '✅' : '⚠️' }), el('div', {}, [
+            el('div', { class: 't-strong', text: `${r.title} (${r.type})` }),
+            el('div', { class: 'mono', style: 'font-size:12px', text: `${r.username ? '@' + r.username + ' · ' : ''}id ${r.chatId} · bot is ${r.botStatus}${r.canPost ? ' · can post' : ''}${r.canDelete ? ' · can delete' : ''}` }),
+            r.hint ? el('div', { text: r.hint }) : null,
+          ])])
+        : el('div', { class: 'toast bad' }, [el('span', { class: 'tc', text: '⛔' }), el('div', { text: r.error })]));
+    });
+    const saveBtn = el('button', { class: 'btn btn-primary', html: '💾 Save settings' });
+    saveBtn.onclick = () => run(saveBtn, async () => {
+      await API.put('/channel/settings', {
+        channel_id: f('ch-id').value.trim(),
+        channel_daily_enabled: f('ch-daily').checked,
+        channel_daily_time: f('ch-time').value,
+        channel_daily_show_soldout: f('ch-soldout').checked,
+        channel_new_enabled: f('ch-new').checked,
+        channel_daily_header: f('ch-header').value,
+        channel_footer: f('ch-footer').value,
+      });
+      toast('Channel settings saved'); channel();
+    });
+    const testMsgBtn = el('button', { class: 'btn btn-sm', text: '✉️ Send test message' });
+    testMsgBtn.onclick = () => run(testMsgBtn, async () => { await API.post('/channel/test-message'); toast('Test message posted to the channel'); channel(); });
+
+    const settingsCard = el('div', { class: 'card' }, [
+      el('div', { class: 'card-head' }, [el('h3', { text: '⚙️ Channel settings' }), el('div', { class: 'sub', text: `Times are ${st.timezone} (now ${String(Math.floor(st.now.minutes / 60)).padStart(2, '0')}:${String(st.now.minutes % 60).padStart(2, '0')})` })]),
+      el('div', { class: 'form-grid' }, [
+        field('Channel (@username, t.me link or -100… id)', `<input id="ch-id" class="mono" value="${esc(s.channel_id)}" placeholder="@mychannel" />`, true),
+      ]),
+      el('div', { class: 'row-flex', style: 'gap:8px;margin-top:8px;flex-wrap:wrap' }, [testBtn, testMsgBtn]),
+      testOut,
+      el('div', { class: 'hint', style: 'margin-top:8px', text: `Add your bot${st.botUsername ? ' @' + st.botUsername : ''} to the channel as an administrator with “Post messages” (and “Delete messages” to remove posts from here).` }),
+      el('div', { class: 'form-grid', style: 'margin-top:14px' }, [
+        field('📦 Daily Today Stock', sw('ch-daily', s.channel_daily_enabled === 'true')),
+        field('Post time (24h)', `<input id="ch-time" type="time" value="${esc(s.channel_daily_time || '10:00')}" />`),
+        field('🆕 Auto-post new products', sw('ch-new', s.channel_new_enabled === 'true')),
+        field('Show sold-out items in Today Stock', sw('ch-soldout', s.channel_daily_show_soldout === 'true')),
+        field('Today Stock header (HTML)', `<textarea id="ch-header" style="min-height:60px">${esc(s.channel_daily_header)}</textarea>`, true),
+        field('Footer for stock & new-product lists (HTML)', `<textarea id="ch-footer" style="min-height:60px">${esc(s.channel_footer)}</textarea>`, true),
+      ]),
+      el('div', { class: 'kv', style: 'margin-top:12px' }, [
+        el('div', { class: 'k', text: "Today's post" }), el('div', { class: 'v' }, [el('span', { class: `badge ${POST_BADGE[st.todayStatus] || (st.todayStatus === 'scheduled' ? 'PENDING' : 'EXPIRED')}`, text: st.todayStatus })]),
+        st.todayError ? el('div', { class: 'k', text: 'Reason' }) : null, st.todayError ? el('div', { class: 'v', text: st.todayError }) : null,
+      ]),
+      el('div', { class: 'modal-foot', style: 'margin-top:12px' }, [saveBtn]),
+    ]);
+
+    // ---------- manual posting ----------
+    const prodOptions = prods.products.map((p) => `<option value="${p.id}">${esc(`${p.emoji} ${p.name} — ${money(p.price)} · ${p.stock == null ? '♾️' : p.stock + ' left'}${p.isActive ? '' : ' (hidden)'}`)}</option>`).join('');
+    const dailyBtn = el('button', { class: 'btn btn-primary', html: '📦 Post Today Stock now' });
+    dailyBtn.onclick = () => run(dailyBtn, async () => {
+      if (!(await confirmDialog({ title: 'Post Today Stock now?', message: 'This posts the current stock list to your channel now (the automatic daily post still runs at its time).', confirmText: 'Post' }))) return;
+      await API.post('/channel/post/daily'); toast('Today Stock posted'); channel();
+    });
+    const previewBtn = el('button', { class: 'btn', text: '👁 Preview' });
+    previewBtn.onclick = () => run(previewBtn, async () => {
+      const r = await API.get('/channel/preview/daily');
+      modal({ title: 'Today Stock preview', subtitle: `${r.count} products · formatting shown as plain text`, body: el('pre', { style: 'white-space:pre-wrap;font-size:13px;max-height:60vh;overflow:auto', text: r.text.replace(/<[^>]+>/g, '') }), footer: [el('button', { class: 'btn', text: 'Close', onclick: closeModal })], wide: true });
+    });
+
+    const typeSel = `<select id="ch-ptype"><option value="product">🛍 Product post</option><option value="price_update">💲 Price update</option><option value="sold_out">❌ Sold-out announcement</option></select>`;
+    const prodBtn = el('button', { class: 'btn btn-primary', text: 'Post to channel' });
+    prodBtn.onclick = () => run(prodBtn, async () => {
+      const type = f('ch-ptype').value;
+      await API.post('/channel/post/product', { productId: Number(f('ch-prod').value), type, oldPrice: f('ch-old').value });
+      toast('Posted to the channel'); f('ch-old').value = ''; channel();
+    });
+
+    const customBtn = el('button', { class: 'btn btn-primary', text: 'Post message' });
+    customBtn.onclick = () => run(customBtn, async () => {
+      const text = f('ch-text').value.trim();
+      if (!text) return toast('Write a message first', 'bad');
+      await API.post('/channel/post/custom', { text, shopButton: f('ch-shopbtn').checked, buttonText: f('ch-btext').value.trim(), buttonUrl: f('ch-burl').value.trim() });
+      toast('Message posted'); f('ch-text').value = ''; channel();
+    });
+
+    const manualCard = el('div', { class: 'card' }, [
+      el('div', { class: 'card-head' }, [el('h3', { text: '📤 Post manually' })]),
+      el('div', { class: 'row-flex', style: 'gap:8px;flex-wrap:wrap' }, [dailyBtn, previewBtn]),
+      el('h3', { style: 'font-family:var(--font-head);margin:18px 0 8px;font-size:15px', text: 'Product post' }),
+      prods.products.length
+        ? el('div', { class: 'form-grid' }, [
+            field('Product', `<select id="ch-prod">${prodOptions}</select>`, true),
+            field('Type', typeSel),
+            field('Old price (optional, for price updates)', `<input id="ch-old" type="number" step="0.01" placeholder="e.g. 1.50" />`),
+          ])
+        : emptyState('🏷️', 'No products yet'),
+      prods.products.length ? el('div', { style: 'margin-top:8px' }, [prodBtn]) : null,
+      el('h3', { style: 'font-family:var(--font-head);margin:18px 0 8px;font-size:15px', text: 'Custom message' }),
+      el('textarea', { id: 'ch-text', placeholder: 'Announcement… HTML allowed: <b>bold</b>, <i>italic</i>, <a href="https://…">link</a>', style: 'min-height:110px' }),
+      el('div', { class: 'form-grid', style: 'margin-top:8px' }, [
+        field('Add “🛒 Shop Now” button', sw('ch-shopbtn', true)),
+        field('Extra button text (optional)', `<input id="ch-btext" placeholder="e.g. Join group" />`),
+        field('Extra button link', `<input id="ch-burl" placeholder="https://…" />`, true),
+      ]),
+      el('div', { style: 'margin-top:8px' }, [customBtn]),
+    ]);
+
+    // ---------- history ----------
+    const histBody = d.posts.length
+      ? el('div', { class: 'table-wrap' }, [(() => {
+          const t = el('table');
+          t.appendChild(el('thead', {}, [el('tr', {}, ['When', 'Type', 'Product', 'Status', 'By', ''].map((h) => el('th', { text: h })))]));
+          const chUser = (s.channel_id || '').startsWith('@') ? s.channel_id.slice(1) : null;
+          t.appendChild(el('tbody', {}, d.posts.map((p) => {
+            const firstMsg = (p.messageIds || '').split(',').filter(Boolean)[0];
+            const actions = [];
+            if (firstMsg && chUser) actions.push(el('a', { class: 'btn btn-sm', href: `https://t.me/${chUser}/${firstMsg}`, target: '_blank', rel: 'noopener', text: 'Open' }));
+            if (p.status === 'sent' && firstMsg) actions.push(el('button', { class: 'btn btn-sm btn-danger', text: 'Delete', onclick: async (e) => {
+              if (!(await confirmDialog({ title: 'Delete this post from the channel?', message: p.preview.replace(/<[^>]+>/g, '').slice(0, 160), confirmText: 'Delete', danger: true }))) return;
+              await run(e.target, async () => { await API.post(`/channel/posts/${p.id}/delete`); toast('Deleted from channel'); channel(); });
+            } }));
+            return el('tr', {}, [
+              el('td', { class: 't-muted', text: dateTime(p.createdAt) }),
+              el('td', { text: POST_KIND[p.kind] || p.kind }),
+              el('td', { text: p.productName || '—' }),
+              el('td', {}, [el('span', { class: `badge ${POST_BADGE[p.status] || 'PENDING'}`, text: p.status }), p.error ? el('div', { class: 't-muted', style: 'font-size:11px;max-width:260px', text: p.error }) : null]),
+              el('td', { class: 't-muted', text: p.createdBy }),
+              el('td', {}, [el('div', { class: 'row-flex', style: 'gap:6px' }, actions)]),
+            ]);
+          })));
+          return t;
+        })()])
+      : emptyState('📭', 'Nothing posted yet');
+
+    mount(el('div', {}, [
+      el('div', { class: 'grid cols-2' }, [settingsCard, manualCard]),
+      el('div', { class: 'card', style: 'margin-top:18px' }, [el('div', { class: 'card-head' }, [el('h3', { text: '🗂 Post history' }), el('div', { class: 'sub', text: 'Last 40 posts' })]), histBody]),
+    ]));
+  }
+
   // ============================ SUPPLIERS ============================
   const fmtNum = (n, cur) => (n == null ? '—' : `${Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${cur || ''}`.trim());
 
@@ -1034,5 +1184,5 @@ const Views = (() => {
     ]);
   }
 
-  return { dashboard, products, orders, users, broadcast, settings, apiKeys, suppliers };
+  return { dashboard, products, orders, users, broadcast, settings, apiKeys, suppliers, channel };
 })();
