@@ -153,8 +153,7 @@ export function premiumEmojiTransformer(prev, method, payload, signal) {
   // the emoji stays in the label instead. Channel ids are "@name" or
   // "-100…" (supergroups share the prefix and just keep their plain emoji).
   const chat = String(payload?.chat_id ?? '');
-  // Inline messages (inline_message_id) may sit in a channel too.
-  const maybeChannel = chat.startsWith('@') || chat.startsWith('-100') || Boolean(payload?.inline_message_id);
+  const maybeChannel = chat.startsWith('@') || chat.startsWith('-100');
   if (payload && payload.reply_markup?.inline_keyboard && (!maybeChannel || process.env.BOT_FRAGMENT_USERNAME === 'true')) {
     payload = { ...payload, reply_markup: decorateKeyboard(payload.reply_markup) };
   }

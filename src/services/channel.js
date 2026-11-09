@@ -82,7 +82,6 @@ async function shopKeyboard(payload, label = '🛒 Shop Now') {
   const url = await shopUrl(payload);
   return url ? new InlineKeyboard().url(label, url) : undefined;
 }
-export const inlineShopKeyboard = shopKeyboard; // used by the bot's inline mode
 
 // Products the shop is actually selling (same rules as the bot's Shop).
 async function listedProducts(where = {}) {
