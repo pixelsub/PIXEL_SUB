@@ -568,7 +568,7 @@ const Views = (() => {
   }
 
   // ============================ CHANNEL ============================
-  const POST_KIND = { daily_stock: '📦 Today Stock', new_product: '🆕 New product', product: '🛍 Product', price_update: '💲 Price update', sold_out: '❌ Sold out', custom: '✏️ Custom', test: '🧪 Test' };
+  const POST_KIND = { daily_stock: '📦 Today Stock', new_product: '🆕 New product', product: '🛍 Product', price_update: '💲 Price update', sold_out: '❌ Sold out', custom: '✏️ Custom', test: '🧪 Test', inline_stock: '💎 Today Stock (inline)' };
   const POST_BADGE = { sent: 'DELIVERED', failed: 'FAILED', pending: 'PENDING', skipped: 'EXPIRED', unknown: 'EXPIRED', deleted: 'CANCELLED' };
 
   async function channel() {
@@ -665,6 +665,7 @@ const Views = (() => {
     const manualCard = el('div', { class: 'card' }, [
       el('div', { class: 'card-head' }, [el('h3', { text: '📤 Post manually' })]),
       el('div', { class: 'row-flex', style: 'gap:8px;flex-wrap:wrap' }, [dailyBtn, previewBtn]),
+      el('div', { class: 'hint', style: 'margin-top:8px', text: `💎 Premium emoji (test): in the channel, type @${st.botUsername || 'yourbot'} in the message box and pick “📦 Today Stock”. The bot then edits that post to add premium emoji. Needs @BotFather → /setinline and /setinlinefeedback (Enabled).` }),
       el('h3', { style: 'font-family:var(--font-head);margin:18px 0 8px;font-size:15px', text: 'Product post' }),
       prods.products.length
         ? el('div', { class: 'form-grid' }, [

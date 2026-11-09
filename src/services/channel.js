@@ -82,6 +82,7 @@ async function shopKeyboard(payload, label = '🛒 Shop Now') {
   const url = await shopUrl(payload);
   return url ? new InlineKeyboard().url(label, url) : undefined;
 }
+export const inlineShopKeyboard = shopKeyboard; // used by the bot's inline mode
 
 // Products the shop is actually selling (same rules as the bot's Shop).
 async function listedProducts(where = {}) {
@@ -313,6 +314,7 @@ export async function deletePost(postId) {
   const post = await prisma.channelPost.findUnique({ where: { id: Number(postId) } });
   if (!post) throw new ChannelError('Post not found', 'not_found');
   if (!bot) throw new ChannelError('BOT_TOKEN is not set.', 'no_bot');
+  if (post.chatId.startsWith('inline:')) throw new ChannelError('Posts made with inline mode can only be deleted in Telegram.', 'bad_request');
   const ids = post.messageIds.split(',').filter(Boolean).map(Number);
   for (const mid of ids) {
     try { await bot.api.deleteMessage(post.chatId, mid); }

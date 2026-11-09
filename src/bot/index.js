@@ -5,6 +5,7 @@ import { registerHandlers } from './handlers.js';
 import { registerAdminHandlers } from './admin.js';
 import { registerWalletHandlers } from './wallet.js';
 import { registerResellerHandlers } from './reseller.js';
+import { registerInlineHandlers } from './inline.js';
 
 export async function startBot() {
   if (!bot) {
@@ -18,6 +19,7 @@ export async function startBot() {
   registerAdminHandlers(bot);
   registerWalletHandlers(bot);
   registerResellerHandlers(bot);
+  registerInlineHandlers(bot);
   registerHandlers(bot);
 
   // Global error boundary so one bad update never crashes the bot.
