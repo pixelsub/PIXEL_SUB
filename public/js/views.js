@@ -37,6 +37,20 @@ const Views = (() => {
     ]);
     wrap.appendChild(stats);
 
+    // Today (Bangladesh day, resets at 12:00 AM Asia/Dhaka) — product sales only.
+    const t = s.today || {};
+    const todayDate = t.date ? new Date(t.date + 'T00:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '';
+    wrap.appendChild(el('div', { class: 'card-head', style: 'margin:22px 0 10px' }, [
+      el('h3', { text: '📅 Today' }),
+      el('div', { class: 'sub', text: `${todayDate} · Bangladesh time · resets at 12:00 AM` }),
+    ]));
+    wrap.appendChild(el('div', { class: 'grid cols-4' }, [
+      statTile({ icon: (t.profit || 0) >= 0 ? '💹' : '📉', label: "Today's Profit", value: money(t.profit || 0), delta: `${t.margin || 0}% margin`, tint: 'linear-gradient(135deg,#37d399,#22d3ee)' }),
+      statTile({ icon: '🛒', label: "Today's Sales", value: money(t.salesRevenue || 0), delta: 'products only', tint: 'linear-gradient(135deg,#6c5cff,#a855f7)' }),
+      statTile({ icon: '🏷️', label: "Today's Cost", value: money(t.cost || 0), delta: 'at time of sale', tint: 'linear-gradient(135deg,#ffb020,#ff5c7a)' }),
+      statTile({ icon: '📦', label: "Today's Orders", value: num(t.orders || 0), delta: `${num(t.items || 0)} items sold`, tint: 'linear-gradient(135deg,#22d3ee,#6c5cff)' }),
+    ]));
+
     // Profit row — product sales only, top-ups excluded.
     const profitTiles = el('div', { class: 'grid cols-4', style: 'margin-top:18px' }, [
       statTile({ icon: '🛍️', label: 'Sales Revenue', value: money(s.salesRevenue || 0), delta: 'products only', tint: 'linear-gradient(135deg,#6c5cff,#22d3ee)' }),

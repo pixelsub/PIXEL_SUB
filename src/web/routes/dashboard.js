@@ -8,11 +8,16 @@ import { stockOf } from '../../services/stock.js';
 const router = express.Router();
 router.use(requireAuth);
 
-function startOfDay(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
+// "Today" is a Bangladesh day (Asia/Dhaka, UTC+6, no daylight saving): it
+// starts at 12:00 AM Dhaka time, whatever timezone the server runs in.
+const DHAKA_OFFSET_MS = 6 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+export function startOfDay(d) {
+  const t = new Date(d).getTime() + DHAKA_OFFSET_MS;
+  return new Date(t - (((t % DAY_MS) + DAY_MS) % DAY_MS) - DHAKA_OFFSET_MS);
 }
+// YYYY-MM-DD of the Dhaka day containing d.
+const dhakaDate = (d) => new Date(new Date(d).getTime() + DHAKA_OFFSET_MS).toISOString().slice(0, 10);
 
 // GET /api/dashboard — headline stats + 14-day revenue series + recent orders
 router.get('/', async (req, res) => {
@@ -72,13 +77,13 @@ router.get('/', async (req, res) => {
   // Build 14-day revenue + order-count series
   const days = [];
   for (let i = 0; i < 14; i++) {
-    const d = new Date(since.getTime() + i * 24 * 60 * 60 * 1000);
-    days.push({ date: d.toISOString().slice(0, 10), revenue: 0, orders: 0 });
+    const d = new Date(since.getTime() + i * DAY_MS);
+    days.push({ date: dhakaDate(d), revenue: 0, orders: 0 });
   }
   const idx = new Map(days.map((d, i) => [d.date, i]));
   for (const o of paidForSeries) {
     if (!o.paidAt) continue;
-    const key = startOfDay(o.paidAt).toISOString().slice(0, 10);
+    const key = dhakaDate(o.paidAt);
     const i = idx.get(key);
     if (i !== undefined) {
       days[i].revenue += num(o.amount);
@@ -96,18 +101,26 @@ router.get('/', async (req, res) => {
   // purchase time, so editing a product's cost never rewrites past profit.
   const soldLines = await prisma.orderItem.findMany({
     where: { order: { status: { in: paidStatuses.filter((s) => s !== 'REFUNDED') }, kind: 'PURCHASE' } },
-    select: { productId: true, productName: true, emoji: true, quantity: true, lineTotal: true, unitCost: true },
+    select: { productId: true, productName: true, emoji: true, quantity: true, lineTotal: true, unitCost: true, order: { select: { id: true, paidAt: true } } },
   });
 
   const profitByProduct = new Map();
   let profitRevenue = 0;
   let profitCost = 0;
   let linesMissingCost = 0;
+  // Today = since 12:00 AM Bangladesh time, by payment time.
+  const todayAgg = { revenue: 0, cost: 0, items: 0, orders: new Set() };
   for (const li of soldLines) {
     const rev = num(li.lineTotal);
     const cost = num(li.unitCost) * li.quantity;
     profitRevenue += rev;
     profitCost += cost;
+    if (li.order?.paidAt && li.order.paidAt >= today) {
+      todayAgg.revenue += rev;
+      todayAgg.cost += cost;
+      todayAgg.items += li.quantity;
+      todayAgg.orders.add(li.order.id);
+    }
     if (num(li.unitCost) === 0) linesMissingCost++;
     const key = li.productId ?? `deleted:${li.productName}`;
     const row = profitByProduct.get(key) || { name: li.productName, emoji: li.emoji, qty: 0, revenue: 0, cost: 0 };
@@ -136,6 +149,16 @@ router.get('/', async (req, res) => {
       profit: +(profitRevenue - profitCost).toFixed(2),
       margin: profitRevenue > 0 ? +(((profitRevenue - profitCost) / profitRevenue) * 100).toFixed(1) : 0,
       linesMissingCost,
+      today: {
+        date: dhakaDate(now),
+        since: today,
+        salesRevenue: +todayAgg.revenue.toFixed(2),
+        cost: +todayAgg.cost.toFixed(2),
+        profit: +(todayAgg.revenue - todayAgg.cost).toFixed(2),
+        margin: todayAgg.revenue > 0 ? +(((todayAgg.revenue - todayAgg.cost) / todayAgg.revenue) * 100).toFixed(1) : 0,
+        orders: todayAgg.orders.size,
+        items: todayAgg.items,
+      },
     },
     series: days,
     productProfit,
