@@ -76,6 +76,28 @@ const TEXT_MAP = {
   '✅': UI.check, '❌': UI.cross, '⭐': UI.star, '🌟': UI.star,
   '🧮': UI.qty, '📊': UI.chart, '🤖': UI.robot, '➡': UI.arrow,
   '⚠': UI.warn, '📧': UI.mail, '✔': UI.tick, '🎓': UI.grad,
+  // Set chosen by the shop owner (2026-11-09). Several plain emoji share one
+  // premium icon where one design fits them all (clocks, hourglasses).
+  '🔔': '5258342814273513092', '🟢': '5222138207063258426', '🔴': '5411225014148014586',
+  '🕐': '5440621591387980068', '🕒': '5440621591387980068', '🕓': '5440621591387980068',
+  '♾': '5469745532693923461', '🆕': '5382357040008021292', '🛒': '5312361253610475399',
+  '💬': '5443038326535759644', '💲': '5409048419211682843', '🧾': '5444856076954520455',
+  '⬅': '5456187398977247949', '🏠': '5465226866321268133',
+  '⏳': '5454415424319931791', '⌛': '5454415424319931791',
+  '💰': '5224257782013769471', 'ℹ': '5215578413317758112', '📌': '5215578413317758112',
+  '👋': '5440431182602842059', '👇': '5348122332432965936', '✏': '5395444784611480792',
+  '🔢': '5226929552319594190', '💎': '5427168083074628963', '🔄': '5226702984204797593',
+  '📋': '5408946052961170713', '⏰': '5413704112220949842', '⏱': '5413704112220949842',
+  '🙏': '5285070644864628879', '😔': '5370781385885751708', '💙': '5294401079063107680',
+  '🎁': '5203996991054432397', '🔗': '5271604874419647061',
+  '🔑': '5420094143089111506', '🗝': '5420094143089111506',
+  '♻': '5377584064326804458', '📘': '5366050848776396912', '💻': '5818813162815753343',
+  '👆': '5341515693479186232', '❗': '5341515693479186232', '⛔': '5463358164705489689',
+  '🗑': '5372825386591732174', '👤': '5249053508681883137', '👥': '5453957997418004470',
+  '🏷': '5240228673738527951', '➕': '5397916757333654639', '📈': '5028746137645876535',
+  '📉': '5246762912428603768', '📣': '5424818078833715060',
+  '🗓': '5472279086657199080', '📅': '5472279086657199080',
+  '🚫': '5240241223632954241', '🎉': '5208541126583136130',
 };
 const TEXT_RE = new RegExp(`(${Object.keys(TEXT_MAP).join('|')})\\uFE0F?`, 'gu');
 
@@ -98,11 +120,35 @@ export function decorateHtml(html) {
     .join('');
 }
 
-// grammY API transformer: decorate text/caption of every HTML message.
+// Inline buttons can't hold <tg-emoji>, but they can show a premium icon
+// (icon_custom_emoji_id). A label that starts with a mapped emoji, e.g.
+// "⬅️ Back", becomes icon + "Back". Buttons that already have an icon are
+// left alone.
+const BTN_RE = new RegExp(`^(${Object.keys(TEXT_MAP).join('|')})\\uFE0F?\\s*`, 'u');
+export function decorateKeyboard(markup) {
+  const rows = markup?.inline_keyboard;
+  if (!Array.isArray(rows)) return markup;
+  let changed = false;
+  const inline_keyboard = rows.map((row) => (Array.isArray(row) ? row.map((b) => {
+    if (!b || typeof b.text !== 'string' || b.icon_custom_emoji_id) return b;
+    const m = BTN_RE.exec(b.text);
+    const text = m ? b.text.slice(m[0].length).trim() : '';
+    if (!m || !text) return b; // emoji-only buttons keep their emoji
+    changed = true;
+    return { ...b, text, icon_custom_emoji_id: TEXT_MAP[m[1]] };
+  }) : row));
+  return changed ? { ...markup, inline_keyboard } : markup;
+}
+
+// grammY API transformer: decorate text/caption of every HTML message, and
+// the leading emoji of every inline button.
 export function premiumEmojiTransformer(prev, method, payload, signal) {
   if (payload && payload.parse_mode === 'HTML' && !payload.entities && !payload.caption_entities) {
     if (typeof payload.text === 'string') payload = { ...payload, text: decorateHtml(payload.text) };
     if (typeof payload.caption === 'string') payload = { ...payload, caption: decorateHtml(payload.caption) };
+  }
+  if (payload && payload.reply_markup?.inline_keyboard) {
+    payload = { ...payload, reply_markup: decorateKeyboard(payload.reply_markup) };
   }
   return prev(method, payload, signal);
 }
