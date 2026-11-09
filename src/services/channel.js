@@ -15,7 +15,7 @@ import prisma from '../db.js';
 import config from '../config.js';
 import logger from '../logger.js';
 import { bot } from '../bot/instance.js';
-import { emojiHtml } from '../emoji.js';
+import { emojiHtml, UI } from '../emoji.js';
 import { escapeHtml, money, num, sleep } from '../utils.js';
 import { getAllSettings, getSetting, setSetting } from './settings.js';
 import { STOCK_COUNT, stockOf } from './stock.js';
@@ -92,7 +92,6 @@ async function listedProducts(where = {}) {
   });
 }
 
-const stockText = (p) => (!p.usesStock ? '♾️ Always available' : stockOf(p) > 0 ? `📦 ${stockOf(p)} in stock` : '❌ Out of stock');
 const inStock = (p) => !p.usesStock || stockOf(p) > 0;
 
 // Split long text on line boundaries into Telegram-sized chunks.
@@ -109,43 +108,60 @@ function chunkText(text) {
 
 // ---------------------------------------------------------------- formatting
 
+// Visual building blocks shared by every post. The premium USDT coin marks
+// prices; 📊 is upgraded to the premium chart icon by decorateHtml.
+const DIVIDER = '━━━━━━━━━━━━━━━━━━';
+const PRICE_ICON = `<tg-emoji emoji-id="${UI.usdt}">💲</tg-emoji>`;
+export const DEFAULT_DAILY_HEADER = "🔔 <b>{shop_name} • TODAY'S STOCK UPDATE</b>";
+const OLD_DAILY_HEADER = "📦 <b>Today's Stock</b>"; // first default — upgraded automatically
+
+// "🟢 LIVE • 🕐 09 Nov 2026 • 10:00 AM (GMT+6)"
+function liveStamp(date = new Date()) {
+  const day = new Intl.DateTimeFormat('en-GB', { timeZone: TIMEZONE, day: '2-digit', month: 'short', year: 'numeric' }).format(date);
+  const time = new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: true }).format(date);
+  return `🟢 <b>LIVE</b> • 🕐 ${escapeHtml(day)} • ${escapeHtml(time)} (GMT+6)`;
+}
+
+// Two-line product entry:
+//   <emoji> Name
+//      └ 💲 $1.30  •  📊 36 in stock
+function productLines(p) {
+  const qty = !p.usesStock ? '♾️ Always available' : stockOf(p) > 0 ? `📊 ${stockOf(p)} in stock` : '❌ Sold out';
+  return [
+    `${emojiHtml(p.emoji)} <b>${escapeHtml(p.name)}</b>`,
+    `   └ ${PRICE_ICON} <b>${money(num(p.price))}</b>  •  ${qty}`,
+  ];
+}
+
+async function headerLine(template) {
+  const shop = escapeHtml(String(await getSetting('shop_name')).toUpperCase());
+  const t = !template || template.trim() === OLD_DAILY_HEADER ? DEFAULT_DAILY_HEADER : template;
+  return t.replace(/\{shop_name\}/g, shop);
+}
+
 export async function buildDailyStock() {
   const s = await getAllSettings();
   const showSoldOut = s.channel_daily_show_soldout === 'true';
-  const products = (await listedProducts()).filter((p) => showSoldOut || inStock(p));
-  const lines = [
-    `${s.channel_daily_header || "📦 <b>Today's Stock</b>"}`,
-    `🗓 ${escapeHtml(prettyDate())}`,
-    '',
-  ];
-  // Group by category (uncategorised last), keeping the shop's sort order.
-  const groups = new Map();
-  for (const p of products) {
-    const key = p.category ? `${p.category.emoji} ${p.category.name}` : '';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(p);
+  const all = await listedProducts();
+  const available = all.filter(inStock);
+  const soldOut = showSoldOut ? all.filter((p) => !inStock(p)) : [];
+  const lines = [await headerLine(s.channel_daily_header), liveStamp(), DIVIDER, ''];
+  if (available.length) {
+    lines.push('✅ <b>AVAILABLE NOW</b>', '');
+    for (const p of available) lines.push(...productLines(p), '');
   }
-  const keys = [...groups.keys()].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : 0));
-  for (const k of keys) {
-    if (k && groups.size > 1) lines.push(`<b>${escapeHtml(k)}</b>`);
-    for (const p of groups.get(k)) {
-      const qty = !p.usesStock ? '♾️' : stockOf(p) > 0 ? `${stockOf(p)} pcs` : 'Sold out';
-      lines.push(`${inStock(p) ? '✅' : '❌'} ${emojiHtml(p.emoji)} <b>${escapeHtml(p.name)}</b> — ${money(num(p.price))} · ${qty}`);
-    }
+  if (soldOut.length) {
+    lines.push('❌ <b>SOLD OUT</b>', '');
+    for (const p of soldOut) lines.push(`${emojiHtml(p.emoji)} <s>${escapeHtml(p.name)}</s>`);
     lines.push('');
   }
-  if (s.channel_footer) lines.push(s.channel_footer);
-  return { text: lines.join('\n').trim(), count: products.length };
+  if (s.channel_footer) lines.push(DIVIDER, s.channel_footer);
+  return { text: lines.join('\n').trim(), count: available.length + soldOut.length };
 }
 
 function productBlock(p, title) {
   const desc = p.description ? `\n${escapeHtml(p.description.length > 350 ? p.description.slice(0, 347) + '…' : p.description)}\n` : '';
-  return (
-    `${title}\n\n` +
-    `${emojiHtml(p.emoji)} <b>${escapeHtml(p.name)}</b>\n${desc}\n` +
-    `💵 Price: <b>${money(num(p.price))}</b>\n` +
-    `${stockText(p)}`
-  );
+  return [title, DIVIDER, '', ...productLines(p), desc].join('\n').trimEnd();
 }
 
 // ---------------------------------------------------------------- sending
@@ -239,7 +255,7 @@ async function loadProduct(productId) {
 
 export async function postProduct(productId, { createdBy = 'admin', kind = 'product', dedupeKey = null } = {}) {
   const p = await loadProduct(productId);
-  const title = kind === 'new_product' ? '🆕 <b>New Product!</b>' : '🛍 <b>Available Now</b>';
+  const title = kind === 'new_product' ? '🆕 <b>NEW PRODUCT ADDED</b>' : '🛍 <b>AVAILABLE NOW</b>';
   return publish({ kind, dedupeKey, productIds: [p.id], text: productBlock(p, title), keyboard: inStock(p) ? await shopKeyboard(`p_${p.id}`) : await shopKeyboard('shop', '🛍 Browse the shop'), createdBy });
 }
 
@@ -247,19 +263,25 @@ export async function postPriceUpdate(productId, { oldPrice = null, createdBy = 
   const p = await loadProduct(productId);
   const now = num(p.price);
   const old = oldPrice != null && oldPrice !== '' && Number.isFinite(Number(oldPrice)) ? Number(oldPrice) : null;
-  const tag = old == null ? '💲 <b>Price Update</b>' : old > now ? '🔥 <b>Price Drop!</b>' : '💲 <b>Price Update</b>';
-  const priceLine = old != null && old !== now ? `<s>${money(old)}</s> ➡️ <b>${money(now)}</b>` : `<b>${money(now)}</b>`;
-  const text =
-    `${tag}\n\n${emojiHtml(p.emoji)} <b>${escapeHtml(p.name)}</b>\n` +
-    `💵 New price: ${priceLine}\n${stockText(p)}`;
+  const tag = old != null && old > now ? '🔥 <b>PRICE DROP</b>' : '💲 <b>PRICE UPDATE</b>';
+  const priceLine = old != null && old !== now ? `<s>${money(old)}</s> ➡ <b>${money(now)}</b>` : `<b>${money(now)}</b>`;
+  const qty = !p.usesStock ? '♾️ Always available' : stockOf(p) > 0 ? `📊 ${stockOf(p)} in stock` : '❌ Sold out';
+  const text = [
+    tag, DIVIDER, '',
+    `${emojiHtml(p.emoji)} <b>${escapeHtml(p.name)}</b>`,
+    `   └ ${PRICE_ICON} ${priceLine}  •  ${qty}`,
+  ].join('\n');
   return publish({ kind: 'price_update', productIds: [p.id], text, keyboard: inStock(p) ? await shopKeyboard(`p_${p.id}`) : undefined, createdBy });
 }
 
 export async function postSoldOut(productId, { createdBy = 'admin' } = {}) {
   const p = await loadProduct(productId);
-  const text =
-    `❌ <b>SOLD OUT</b>\n\n${emojiHtml(p.emoji)} <b>${escapeHtml(p.name)}</b> is sold out for now.\n` +
-    `🔔 Restock coming soon — check the shop for other products!`;
+  const text = [
+    '❌ <b>SOLD OUT</b>', DIVIDER, '',
+    `${emojiHtml(p.emoji)} <s>${escapeHtml(p.name)}</s>`,
+    '',
+    '🔔 Restock coming soon — check the shop for other products!',
+  ].join('\n');
   return publish({ kind: 'sold_out', productIds: [p.id], text, keyboard: await shopKeyboard('shop', '🛍 Browse the shop'), createdBy });
 }
 
@@ -363,9 +385,9 @@ export async function announceNewProducts() {
 
     if (fresh.length > COMBINE_NEW_ABOVE) {
       // Many at once (e.g. "Add all in stock" for a supplier): one combined post.
-      const lines = ['🆕 <b>New Products Just Added!</b>', ''];
-      for (const p of fresh) lines.push(`${emojiHtml(p.emoji)} <b>${escapeHtml(p.name)}</b> — ${money(num(p.price))} · ${!p.usesStock ? '♾️' : `${stockOf(p)} pcs`}`);
-      if (s.channel_footer) lines.push('', s.channel_footer);
+      const lines = ['🆕 <b>NEW PRODUCTS ADDED</b>', liveStamp(), DIVIDER, ''];
+      for (const p of fresh) lines.push(...productLines(p), '');
+      if (s.channel_footer) lines.push(DIVIDER, s.channel_footer);
       const r = await publish({ kind: 'new_product', dedupeKey: fresh.map((p) => `new:${p.id}`), productIds: fresh.map((p) => p.id), text: lines.join('\n'), keyboard: await shopKeyboard('shop') });
       return { posted: r.skipped ? 0 : fresh.length };
     }

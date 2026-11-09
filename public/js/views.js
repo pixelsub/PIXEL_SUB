@@ -623,7 +623,7 @@ const Views = (() => {
         field('Post time (24h)', `<input id="ch-time" type="time" value="${esc(s.channel_daily_time || '10:00')}" />`),
         field('🆕 Auto-post new products', sw('ch-new', s.channel_new_enabled === 'true')),
         field('Show sold-out items in Today Stock', sw('ch-soldout', s.channel_daily_show_soldout === 'true')),
-        field('Today Stock header (HTML)', `<textarea id="ch-header" style="min-height:60px">${esc(s.channel_daily_header)}</textarea>`, true),
+        field('Today Stock header (HTML, {shop_name} = your shop name)',`<textarea id="ch-header" style="min-height:60px">${esc(s.channel_daily_header)}</textarea>`, true),
         field('Footer for stock & new-product lists (HTML)', `<textarea id="ch-footer" style="min-height:60px">${esc(s.channel_footer)}</textarea>`, true),
       ]),
       el('div', { class: 'kv', style: 'margin-top:12px' }, [
