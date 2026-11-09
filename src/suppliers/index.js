@@ -4,10 +4,12 @@ import logger from '../logger.js';
 import { num } from '../utils.js';
 import { decryptSecret } from '../services/secrets.js';
 import * as tokopremium from './tokopremium.js';
+import * as ventebot from './ventebot.js';
 
 export { SupplierError } from './tokopremium.js';
 
 export const CONNECTORS = {
+  ventebot: { label: 'VenteBot', defaultBaseUrl: 'https://web-production-1c7b1.up.railway.app/api/reseller', defaultCurrency: 'USD', client: ventebot },
   tokopremium: { label: 'TokoPremium', defaultBaseUrl: 'https://api.tokopremium.digital/api/v1', defaultCurrency: 'IDR', client: tokopremium },
 };
 
