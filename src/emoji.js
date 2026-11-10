@@ -67,13 +67,35 @@ export function emojiFromMessage(message) {
   return encodeEmoji(text.substr(ent.offset, ent.length) || '🛍️', ent.custom_emoji_id);
 }
 
+// ---- Brand premium emoji for products --------------------------------------
+// Products whose name contains one of these words get the brand's premium icon
+// (stored as "<fallback>|<id>", like any admin-chosen premium emoji).
+const BRAND_EMOJI = [
+  { re: /youtube/i, char: '▶️', id: '5334681713316479679' },
+  { re: /chat\s?gpt|\bgpt\b|openai/i, char: '🤖', id: '5310259124817134249' },
+  { re: /capcut/i, char: '🎬', id: '5364339557712020484' },
+  { re: /linkedin/i, char: '💼', id: '5346024520081751155' },
+  { re: /nord\s?vpn|\bnord\b/i, char: '🛡', id: '5346134750417403743' },
+  { re: /gemini/i, char: '✨', id: '5321197740800120767' },
+  { re: /claude|anthropic/i, char: '🧠', id: '6174520215376763867' },
+  { re: /grok/i, char: '🤖', id: '5319288443153445517' },
+  { re: /\bmuse\b/i, char: '✨', id: '5891219692881714411' },
+  { re: /canva/i, char: '🎨', id: '5879982576671657703' },
+];
+
+// Encoded premium emoji for a product name, or null when no brand matches.
+export function brandEmoji(name = '') {
+  const b = BRAND_EMOJI.find((x) => x.re.test(String(name)));
+  return b ? encodeEmoji(b.char, b.id) : null;
+}
+
 // ---- Automatic premium emoji in message text -------------------------------
 // Plain emoji that appear in message text are swapped for their premium twin.
 // Anything not listed stays as is.
 const TEXT_MAP = {
   '🛍': UI.shop, '⚡': UI.bolt, '🛡': UI.shield, '💳': UI.card, '📱': UI.phone,
   '🔐': UI.lock, '📦': UI.box, '🔥': UI.fire, '💵': UI.dollar, '👛': UI.wallet,
-  '✅': UI.check, '❌': UI.cross, '⭐': UI.star, '🌟': UI.star,
+  '✅': UI.check, '❌': UI.cross, '⭐': UI.star, '🌟': '5062223874414872610',
   '🧮': UI.qty, '📊': UI.chart, '🤖': UI.robot, '➡': UI.arrow,
   '⚠': UI.warn, '📧': UI.mail, '✔': UI.tick, '🎓': UI.grad,
   // Set chosen by the shop owner (2026-11-09). Several plain emoji share one

@@ -3,6 +3,7 @@ import prisma from '../db.js';
 import logger from '../logger.js';
 import { num } from '../utils.js';
 import { decryptSecret } from '../services/secrets.js';
+import { brandEmoji } from '../emoji.js';
 import * as tokopremium from './tokopremium.js';
 import * as ventebot from './ventebot.js';
 
@@ -87,7 +88,7 @@ export async function syncSupplier(supplierId) {
       const p = byVariant.get(v.variantId);
       if (!p) {
         await prisma.product.create({
-          data: { ...fields, name: v.name, description: v.description, usesStock: true, isActive: false, supplierId: supplier.id, supplierVariantId: v.variantId },
+          data: { ...fields, name: v.name, ...(brandEmoji(v.name) ? { emoji: brandEmoji(v.name) } : {}), description: v.description, usesStock: true, isActive: false, supplierId: supplier.id, supplierVariantId: v.variantId },
         });
         created++;
       } else {
