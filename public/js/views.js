@@ -51,6 +51,41 @@ const Views = (() => {
       statTile({ icon: '📦', label: "Today's Orders", value: num(t.orders || 0), delta: `${num(t.items || 0)} items sold`, tint: 'linear-gradient(135deg,#22d3ee,#6c5cff)' }),
     ]));
 
+    // Today by payment method: money received via Binance / Bybit / Cryptomus
+    // (incl. wallet top-ups) and orders paid from wallet balance.
+    const tm = d.todayMethods || {};
+    const mt = (k) => tm[k] || { orders: 0, amount: 0, topups: 0 };
+    const sub = (m) => `${num(m.orders)} orders${m.topups ? ` (${num(m.topups)} top-ups)` : ''}`;
+    wrap.appendChild(el('div', { class: 'grid cols-4', style: 'margin-top:18px' }, [
+      statTile({ icon: '🟡', label: 'Binance Today', value: money(mt('BINANCE').amount), delta: sub(mt('BINANCE')), tint: 'linear-gradient(135deg,#ffb020,#f59e0b)' }),
+      statTile({ icon: '🟠', label: 'Bybit Today', value: money(mt('BYBIT').amount), delta: sub(mt('BYBIT')), tint: 'linear-gradient(135deg,#ff8a3d,#ff5c7a)' }),
+      statTile({ icon: '🪙', label: 'Crypto (Cryptomus) Today', value: money(mt('CRYPTOMUS').amount), delta: sub(mt('CRYPTOMUS')), tint: 'linear-gradient(135deg,#22d3ee,#6c5cff)' }),
+      statTile({ icon: '👛', label: 'Paid by Balance Today', value: num(mt('BALANCE').orders), delta: `${money(mt('BALANCE').amount)} from wallet`, tint: 'linear-gradient(135deg,#37d399,#22d3ee)' }),
+    ]));
+
+    // Daily history, last 14 days (Bangladesh days), newest first.
+    const hist = [...(d.series || [])].reverse().map((day) => {
+      const m = (k) => (day.methods && day.methods[k]) || { orders: 0, amount: 0 };
+      return el('tr', {}, [
+        el('td', { text: day.date }),
+        el('td', { text: num(day.orders) }),
+        el('td', { text: `${money(m('BINANCE').amount)} (${num(m('BINANCE').orders)})` }),
+        el('td', { text: `${money(m('BYBIT').amount)} (${num(m('BYBIT').orders)})` }),
+        el('td', { text: `${money(m('CRYPTOMUS').amount)} (${num(m('CRYPTOMUS').orders)})` }),
+        el('td', { text: `${num(m('BALANCE').orders)} · ${money(m('BALANCE').amount)}` }),
+      ]);
+    });
+    wrap.appendChild(el('div', { class: 'card', style: 'margin-top:18px' }, [
+      el('div', { class: 'card-head' }, [el('div', {}, [
+        el('h3', { text: 'Daily orders by payment method' }),
+        el('div', { class: 'sub', text: 'Amount (orders) per day · Binance/Bybit/Cryptomus include wallet top-ups · Balance = orders paid from wallet' }),
+      ])]),
+      el('div', { class: 'table-wrap' }, [el('table', { class: 'table' }, [
+        el('thead', {}, [el('tr', {}, ['Date', 'Orders', 'Binance', 'Bybit', 'Cryptomus', 'Balance'].map((h) => el('th', { text: h })))]),
+        el('tbody', {}, hist),
+      ])]),
+    ]));
+
     // Profit row — product sales only, top-ups excluded.
     const profitTiles = el('div', { class: 'grid cols-4', style: 'margin-top:18px' }, [
       statTile({ icon: '🛍️', label: 'Sales Revenue', value: money(s.salesRevenue || 0), delta: 'products only', tint: 'linear-gradient(135deg,#6c5cff,#22d3ee)' }),

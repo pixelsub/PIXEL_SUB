@@ -19,6 +19,8 @@ export function startOfDay(d) {
 // YYYY-MM-DD of the Dhaka day containing d.
 const dhakaDate = (d) => new Date(new Date(d).getTime() + DHAKA_OFFSET_MS).toISOString().slice(0, 10);
 
+const emptyMethods = () => Object.fromEntries(['BINANCE', 'BYBIT', 'CRYPTOMUS', 'BALANCE'].map((k) => [k, { orders: 0, amount: 0, topups: 0 }]));
+
 // GET /api/dashboard — headline stats + 14-day revenue series + recent orders
 router.get('/', async (req, res) => {
   const now = new Date();
@@ -63,7 +65,7 @@ router.get('/', async (req, res) => {
     }),
     prisma.order.findMany({
       where: { status: { in: ['PAID', 'DELIVERED'] }, paidAt: { gte: since } },
-      select: { paidAt: true, amount: true },
+      select: { paidAt: true, amount: true, method: true, kind: true },
     }),
     prisma.orderItem.groupBy({
       by: ['productName', 'emoji'],
@@ -78,7 +80,7 @@ router.get('/', async (req, res) => {
   const days = [];
   for (let i = 0; i < 14; i++) {
     const d = new Date(since.getTime() + i * DAY_MS);
-    days.push({ date: dhakaDate(d), revenue: 0, orders: 0 });
+    days.push({ date: dhakaDate(d), revenue: 0, orders: 0, methods: emptyMethods() });
   }
   const idx = new Map(days.map((d, i) => [d.date, i]));
   for (const o of paidForSeries) {
@@ -88,8 +90,15 @@ router.get('/', async (req, res) => {
     if (i !== undefined) {
       days[i].revenue += num(o.amount);
       days[i].orders += 1;
+      // Payment-method split. BINANCE/BYBIT include wallet top-ups (money
+      // actually received); BALANCE is an order paid from the wallet.
+      const m = days[i].methods[o.method] || (days[i].methods[o.method] = { orders: 0, amount: 0, topups: 0 });
+      m.orders += 1;
+      m.amount += num(o.amount);
+      if (o.kind === 'TOPUP') m.topups += 1;
     }
   }
+  for (const d of days) for (const m of Object.values(d.methods)) m.amount = +m.amount.toFixed(2);
 
   const lowStock = lowStockProducts
     .map((p) => ({ id: p.id, name: p.name, emoji: emojiPlain(p.emoji), stock: stockOf(p) }))
@@ -161,6 +170,7 @@ router.get('/', async (req, res) => {
       },
     },
     series: days,
+    todayMethods: days[days.length - 1].methods,
     productProfit,
     lowStock,
     topProducts: topProductsRaw.map((t) => ({
