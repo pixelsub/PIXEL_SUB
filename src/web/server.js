@@ -12,6 +12,7 @@ import productRoutes from './routes/products.js';
 import stockRoutes from './routes/stock.js';
 import orderRoutes from './routes/orders.js';
 import userRoutes from './routes/users.js';
+import referralRoutes from './routes/referrals.js';
 import settingsRoutes from './routes/settings.js';
 import broadcastRoutes from './routes/broadcast.js';
 import apiKeyRoutes from './routes/api_keys.js';
@@ -41,6 +42,7 @@ export function createServer() {
   app.use('/api/stock', stockRoutes);
   app.use('/api/orders', orderRoutes);
   app.use('/api/users', userRoutes);
+  app.use('/api/referrals', referralRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/broadcast', broadcastRoutes);
   app.use('/api/api-keys', apiKeyRoutes);

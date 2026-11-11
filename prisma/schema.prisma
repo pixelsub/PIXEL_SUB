@@ -338,3 +338,34 @@ model CreditRequest {
 
   @@index([status])
 }
+
+// ------------------------------------------------------------------
+// Referrals — "Invite & Earn". One row per invited friend (referredId is
+// unique, so a person can only ever be referred once). The referrer gets a
+// join bonus up front, then a % commission on the friend's first few paid
+// purchases. Plain ids (no relations) so this adds tables only and never
+// touches existing ones.
+// ------------------------------------------------------------------
+model Referral {
+  id               Int      @id @default(autoincrement())
+  referrerId       Int
+  referredId       Int      @unique
+  bonusPaid        Decimal  @default(0) @db.Decimal(12, 2)
+  commissionOrders Int      @default(0) // purchases already commissioned
+  commissionTotal  Decimal  @default(0) @db.Decimal(12, 2)
+  createdAt        DateTime @default(now())
+
+  @@index([referrerId, createdAt])
+}
+
+// One row per commissioned order. orderId is unique: an order can pay
+// commission at most once, even if delivery runs twice.
+model ReferralEarning {
+  id         Int      @id @default(autoincrement())
+  referralId Int
+  orderId    Int      @unique
+  amount     Decimal  @db.Decimal(12, 2)
+  createdAt  DateTime @default(now())
+
+  @@index([referralId])
+}

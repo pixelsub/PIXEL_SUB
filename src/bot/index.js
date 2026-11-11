@@ -31,6 +31,7 @@ export async function startBot() {
       { command: 'start', description: 'Open the shop' },
       { command: 'shop', description: 'Browse products' },
       { command: 'orders', description: 'My orders' },
+      { command: 'invite', description: 'Invite friends & earn' },
       { command: 'api', description: 'Reseller API — connect your store' },
       { command: 'help', description: 'Support & help' },
     ])

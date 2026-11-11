@@ -15,6 +15,7 @@ export function mainMenuKeyboard(isAdmin = false) {
     .text('Support', 'support').icon(UI.support)
     .text('ℹ️ FAQ', 'faq')
     .row()
+    .text('🎁 Invite & Earn', 'ref')
     .text('🔌 Reseller API', 'rapi');
   if (isAdmin) kb.row().text('Admin Panel', 'a:menu').icon(UI.shield);
   return kb;

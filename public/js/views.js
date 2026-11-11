@@ -465,6 +465,83 @@ const Views = (() => {
     container.appendChild(pager(data, (pg) => { userState.page = pg; users(); }));
   }
 
+  // ============================ REFERRALS ============================
+  const refState = { page: 1 };
+  async function referrals() {
+    loading();
+    let d;
+    try { d = await API.referrals({ page: refState.page, pageSize: 25 }); } catch (e) { return mount(errorBox(e)); }
+    const s = d.summary, rules = d.rules;
+
+    const wrap = el('div');
+    wrap.appendChild(el('div', { class: 'grid cols-4' }, [
+      statTile({ icon: '👥', label: 'Friends Invited', value: num(s.referrals), delta: `+${num(s.referralsToday)} today`, tint: 'linear-gradient(135deg,#37d399,#22d3ee)' }),
+      statTile({ icon: '🙋', label: 'Referrers', value: num(s.referrers), delta: `${num(s.buyers)} friends bought`, tint: 'linear-gradient(135deg,#6c5cff,#a855f7)' }),
+      statTile({ icon: '🎁', label: 'Join Bonuses Paid', value: money(s.bonusPaid), delta: `${money(rules.joinBonus)} per friend`, tint: 'linear-gradient(135deg,#ffb020,#f59e0b)' }),
+      statTile({ icon: '💸', label: 'Commission Paid', value: money(s.commissionPaid), delta: `${rules.commissionPct}% × first ${rules.maxCommissionOrders} orders`, tint: 'linear-gradient(135deg,#22d3ee,#6c5cff)' }),
+    ]));
+    wrap.appendChild(el('div', { class: 'hint', style: 'margin:14px 2px', text: `Total paid out to referrers: ${money(s.totalPaid)} · Daily limit: ${rules.dailyLimit} referrals per user` }));
+
+    if (!d.referrers.length) {
+      wrap.appendChild(el('div', { class: 'card' }, [emptyState('🎁', 'No referrals yet — they will show up here once someone joins through an invite link')]));
+      return mount(wrap);
+    }
+
+    const table = el('table');
+    table.appendChild(el('thead', {}, [el('tr', {}, ['Referrer', 'Invited', 'Today', 'Bought', 'Join bonus', 'Commission', 'Total earned', ''].map((t) => el('th', { text: t })))]));
+    const tb = el('tbody');
+    for (const r of d.referrers) {
+      tb.appendChild(el('tr', { style: 'cursor:pointer', onclick: () => referrerDetail(r.referrerId) }, [
+        el('td', {}, [customerCell(r.user)]),
+        el('td', { class: 't-strong', text: num(r.invited) }),
+        el('td', { text: `${r.today}/${rules.dailyLimit}` }),
+        el('td', { text: num(r.buyers) }),
+        el('td', { text: money(r.bonus) }),
+        el('td', { text: money(r.commission) }),
+        el('td', { class: 't-strong', text: money(r.total) }),
+        el('td', {}, [el('span', { class: 'hint', text: '›' })]),
+      ]));
+    }
+    table.appendChild(tb);
+    wrap.appendChild(el('div', { class: 'table-wrap', style: 'margin-top:6px' }, [table]));
+    wrap.appendChild(pager(d, (pg) => { refState.page = pg; referrals(); }));
+    mount(wrap);
+  }
+
+  async function referrerDetail(id) {
+    modal({ title: 'Referrer', body: el('div', {}, [spinner()]), wide: true });
+    let d;
+    try { d = await API.referrer(id); } catch (e) { return toast(e.message, 'bad'); }
+    const name = d.referrer.username ? '@' + d.referrer.username : (d.referrer.firstName || 'User');
+
+    const body = el('div');
+    body.appendChild(el('div', { class: 'kv' }, [
+      el('div', { class: 'k', text: 'Referrer' }), el('div', { class: 'v', text: `${name} (${d.referrer.telegramId})` }),
+      el('div', { class: 'k', text: 'Friends invited' }), el('div', { class: 'v', text: num(d.totals.invited) }),
+      el('div', { class: 'k', text: 'Join bonuses' }), el('div', { class: 'v', text: money(d.totals.bonus) }),
+      el('div', { class: 'k', text: 'Commission' }), el('div', { class: 'v', text: money(d.totals.commission) }),
+      el('div', { class: 'k', text: 'Total earned' }), el('div', { class: 't-strong v', text: money(d.totals.earned) }),
+    ]));
+
+    const table = el('table');
+    table.appendChild(el('thead', {}, [el('tr', {}, ['Friend', 'Joined', 'Spent', 'Commissioned', 'Earned for referrer'].map((t) => el('th', { text: t })))]));
+    const tb = el('tbody');
+    for (const f of d.friends) {
+      const full = f.commissionOrders >= d.maxCommissionOrders;
+      tb.appendChild(el('tr', {}, [
+        el('td', {}, [customerCell(f.friend)]),
+        el('td', { class: 't-muted', text: timeAgo(f.joinedAt) }),
+        el('td', { text: money(f.spent) }),
+        el('td', { text: `${f.commissionOrders}/${d.maxCommissionOrders}${full ? ' ✓ done' : ''}` }),
+        el('td', { class: 't-strong', text: money(f.earned) }),
+      ]));
+    }
+    table.appendChild(tb);
+    body.appendChild(el('div', { class: 'table-wrap', style: 'margin-top:14px' }, [table]));
+
+    modal({ title: `Referrals by ${name}`, body, wide: true });
+  }
+
   async function userDetail(id) {
     modal({ title: 'Customer', body: el('div', {}, [spinner()]), wide: true });
     let res;
@@ -1233,5 +1310,5 @@ const Views = (() => {
     ]);
   }
 
-  return { dashboard, products, orders, users, broadcast, settings, apiKeys, suppliers, channel };
+  return { dashboard, products, orders, users, referrals, broadcast, settings, apiKeys, suppliers, channel };
 })();

@@ -1,3 +1,4 @@
+import { InlineKeyboard } from 'grammy';
 import prisma from '../db.js';
 import { emojiHtml, UI } from '../emoji.js';
 import logger from '../logger.js';
@@ -22,6 +23,7 @@ import {
   statusEmoji,
 } from './keyboards.js';
 import { showAdminMenu } from './admin.js';
+import { RULES, parseReferralPayload, referralLink, registerReferral, referralStats } from '../services/referrals.js';
 import { STOCK_COUNT, stockOf } from '../services/stock.js';
 
 // ---------- helpers ----------
@@ -617,6 +619,29 @@ async function showSupport(ctx) {
   await smartSend(ctx, text, supportKeyboard());
 }
 
+async function showReferral(ctx) {
+  const link = referralLink(ctx.me.username, ctx.dbUser.id);
+  const s = await referralStats(ctx.dbUser.id);
+  const text =
+    `🎁 <b>Invite & Earn</b>\n\n` +
+    `Share your link. When a friend joins, you get <b>${money(RULES.joinBonus)}</b> instantly, ` +
+    `and <b>${RULES.commissionPct}%</b> of their first <b>${RULES.maxCommissionOrders}</b> purchases.\n\n` +
+    `🔗 <b>Your link</b> (tap to copy):\n<code>${link}</code>\n\n` +
+    `👥 Friends invited: <b>${s.invited}</b> (${s.buyers} bought)\n` +
+    `📅 Today: <b>${s.today}/${RULES.dailyLimit}</b>\n` +
+    `💰 Join bonuses: <b>${money(s.bonus)}</b>\n` +
+    `💸 Commission: <b>${money(s.commission)}</b>\n` +
+    `🏆 Total earned: <b>${money(s.total)}</b>\n\n` +
+    `<i>Earnings go straight to your balance.</i>`;
+  const share = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent('Get premium subscriptions at the best price 🎁')}`;
+  const kb = new InlineKeyboard()
+    .url('📤 Share Link', share)
+    .row()
+    .text('💳 My Balance', 'balance')
+    .text('🏠 Menu', 'menu');
+  await smartSend(ctx, text, kb);
+}
+
 async function showFaq(ctx) {
   const text = await getSetting('faq_text');
   await smartSend(ctx, text, backMenuKeyboard());
@@ -649,6 +674,13 @@ export function registerHandlers(bot) {
   // ?start=shop opens the shop. Plain /start shows the main menu as before.
   bot.command('start', async (ctx) => {
     const payload = String(ctx.match || '').trim();
+    // Invite link: credit the referrer if this is a brand-new user, then carry on
+    // to the normal welcome. Referral trouble never blocks the new customer.
+    const referrerId = parseReferralPayload(payload);
+    if (referrerId) {
+      await registerReferral({ referrerId, referred: ctx.dbUser });
+      return showMainMenu(ctx);
+    }
     const m = /^p_(\d+)$/.exec(payload);
     if (m) return showQuantity(ctx, Number(m[1]));
     if (payload === 'shop') return showShop(ctx);
@@ -658,6 +690,11 @@ export function registerHandlers(bot) {
   bot.command('shop', showShop);
   bot.command('orders', showOrders);
   bot.command('help', showSupport);
+  bot.command('invite', showReferral);
+  bot.callbackQuery('ref', async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    await showReferral(ctx);
+  });
   bot.command('whoami', (ctx) =>
     ctx.reply(
       `Your Telegram ID: <code>${ctx.from.id}</code>\nUsername: @${ctx.from.username || '—'}\nAdmin: ${ctx.isAdmin ? 'yes' : 'no'}`,

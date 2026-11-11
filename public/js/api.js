@@ -40,6 +40,8 @@ const API = (() => {
     order: (id) => req('GET', `/orders/${id}`),
     users: (q) => req('GET', `/users?${new URLSearchParams(q)}`),
     user: (id) => req('GET', `/users/${id}`),
+    referrals: (q) => req('GET', `/referrals?${new URLSearchParams(q)}`),
+    referrer: (id) => req('GET', `/referrals/${id}`),
     settings: () => req('GET', '/settings'),
   };
 })();

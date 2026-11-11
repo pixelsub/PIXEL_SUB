@@ -11,6 +11,7 @@ import { money, escapeHtml } from '../utils.js';
 import { InlineKeyboard } from 'grammy';
 import { STOCK_COUNT, stockOf, isSupplierProduct } from './stock.js';
 import { buyFromSupplier } from '../suppliers/index.js';
+import { awardCommission } from './referrals.js';
 
 // How many units of a product can be sold right now (own stock rows, or the
 // supplier's live stock for supplier-backed products).
@@ -834,6 +835,8 @@ export async function fulfillAndDeliver(orderId) {
   );
   await logEvent(order.id, 'delivered', `${deliveredItems.length} item group(s)`);
   logger.info({ order: order.publicId }, 'order delivered');
+  // Referral commission for the buyer's inviter (no-op unless they were referred).
+  await awardCommission(order.id);
   return { delivered: true };
 }
 
