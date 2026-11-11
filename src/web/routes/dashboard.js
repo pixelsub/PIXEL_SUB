@@ -2,7 +2,7 @@ import express from 'express';
 import { emojiPlain } from '../../emoji.js';
 import prisma from '../../db.js';
 import { requireAuth } from '../auth.js';
-import { num } from '../../utils.js';
+import { num, startOfDay } from '../../utils.js';
 import { stockOf } from '../../services/stock.js';
 
 const router = express.Router();
@@ -12,10 +12,6 @@ router.use(requireAuth);
 // starts at 12:00 AM Dhaka time, whatever timezone the server runs in.
 const DHAKA_OFFSET_MS = 6 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-export function startOfDay(d) {
-  const t = new Date(d).getTime() + DHAKA_OFFSET_MS;
-  return new Date(t - (((t % DAY_MS) + DAY_MS) % DAY_MS) - DHAKA_OFFSET_MS);
-}
 // YYYY-MM-DD of the Dhaka day containing d.
 const dhakaDate = (d) => new Date(new Date(d).getTime() + DHAKA_OFFSET_MS).toISOString().slice(0, 10);
 
@@ -48,10 +44,11 @@ router.get('/', async (req, res) => {
     prisma.order.count(),
     prisma.order.count({ where: { status: 'PENDING' } }),
     prisma.order.count({ where: { status: 'DELIVERED' } }),
-    prisma.order.aggregate({ _sum: { amount: true }, where: { status: { in: ['PAID', 'DELIVERED'] } } }),
+    // Revenue = product sales only; wallet top-ups are not revenue.
+    prisma.order.aggregate({ _sum: { amount: true }, where: { status: { in: ['PAID', 'DELIVERED'] }, kind: 'PURCHASE' } }),
     prisma.order.aggregate({
       _sum: { amount: true },
-      where: { status: { in: ['PAID', 'DELIVERED'] }, paidAt: { gte: today } },
+      where: { status: { in: ['PAID', 'DELIVERED'] }, kind: 'PURCHASE', paidAt: { gte: today } },
     }),
     prisma.product.count({ where: { isActive: true } }),
     prisma.product.findMany({

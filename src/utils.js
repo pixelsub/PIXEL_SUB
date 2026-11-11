@@ -29,6 +29,15 @@ export function num(d) {
   return typeof d === 'object' && typeof d.toNumber === 'function' ? d.toNumber() : Number(d);
 }
 
+// "Today" is a Bangladesh day (Asia/Dhaka, UTC+6, no DST): it starts at 12:00 AM
+// Dhaka time whatever timezone the server runs in. Shared by the bot and dashboard.
+const DHAKA_OFFSET_MS = 6 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+export function startOfDay(d = new Date()) {
+  const t = new Date(d).getTime() + DHAKA_OFFSET_MS;
+  return new Date(t - (((t % DAY_MS) + DAY_MS) % DAY_MS) - DHAKA_OFFSET_MS);
+}
+
 // Escape user-provided text for Telegram HTML parse mode
 export function escapeHtml(str = '') {
   return String(str)

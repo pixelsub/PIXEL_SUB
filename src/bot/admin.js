@@ -3,7 +3,7 @@ import { emojiHtml, emojiPlain, emojiFromMessage, UI } from '../emoji.js';
 import prisma from '../db.js';
 import logger from '../logger.js';
 import config from '../config.js';
-import { money, num, escapeHtml, sleep, chunk } from '../utils.js';
+import { money, num, escapeHtml, sleep, chunk, startOfDay } from '../utils.js';
 import { stockOf } from '../services/stock.js';
 import { queueNewProductCheck } from '../services/channel.js';
 import { sendMessageSafe } from './delivery.js';
@@ -47,7 +47,7 @@ export async function showAdminMenu(ctx) {
     prisma.product.count(),
   ]);
   const [revenue, pendingCredits] = await Promise.all([
-    prisma.order.aggregate({ _sum: { amount: true }, where: { status: { in: ['PAID', 'DELIVERED'] } } }),
+    prisma.order.aggregate({ _sum: { amount: true }, where: { status: { in: ['PAID', 'DELIVERED'] }, kind: 'PURCHASE' } }),
     prisma.creditRequest.count({ where: { status: 'PENDING' } }),
   ]);
 
@@ -78,16 +78,15 @@ export async function showAdminMenu(ctx) {
 }
 
 async function showStats(ctx) {
-  const now = new Date();
-  const today = new Date(now); today.setHours(0, 0, 0, 0);
+  const today = startOfDay(); // Bangladesh day, same as the dashboard
   const [users, newToday, orders, delivered, pending, rev, revToday] = await Promise.all([
     prisma.user.count(),
     prisma.user.count({ where: { createdAt: { gte: today } } }),
     prisma.order.count(),
     prisma.order.count({ where: { status: 'DELIVERED' } }),
     prisma.order.count({ where: { status: 'PENDING' } }),
-    prisma.order.aggregate({ _sum: { amount: true }, where: { status: { in: ['PAID', 'DELIVERED'] } } }),
-    prisma.order.aggregate({ _sum: { amount: true }, where: { status: { in: ['PAID', 'DELIVERED'] }, paidAt: { gte: today } } }),
+    prisma.order.aggregate({ _sum: { amount: true }, where: { status: { in: ['PAID', 'DELIVERED'] }, kind: 'PURCHASE' } }),
+    prisma.order.aggregate({ _sum: { amount: true }, where: { status: { in: ['PAID', 'DELIVERED'] }, kind: 'PURCHASE', paidAt: { gte: today } } }),
   ]);
   const text =
     `📊 <b>Store Statistics</b>\n\n` +
@@ -110,7 +109,7 @@ async function showProfit(ctx, page = 0) {
   clearState(ctx.from.id);
 
   // All-time + today profit in one go
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const today = startOfDay(); // Bangladesh day, same as the dashboard
 
   const [allItems, todayItems] = await Promise.all([
     prisma.orderItem.findMany({
