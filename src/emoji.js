@@ -53,6 +53,16 @@ export function emojiPlain(value) {
   return parseEmoji(value).char;
 }
 
+// An inline button showing the product's own icon. A premium emoji goes in as
+// icon_custom_emoji_id (so the auto-mapper can't swap in a generic UI icon for
+// its fallback char, e.g. 🤖); a plain emoji stays in the label.
+export function productButton(product, label, callbackData, extra = {}) {
+  const { char, id } = parseEmoji(product?.emoji);
+  return id
+    ? { text: label, callback_data: callbackData, icon_custom_emoji_id: id, ...extra }
+    : { text: `${char} ${label}`, callback_data: callbackData, ...extra };
+}
+
 // Inside an HTML-parse-mode message. Replaces escapeHtml(x.emoji).
 export function emojiHtml(value) {
   const { char, id } = parseEmoji(value);

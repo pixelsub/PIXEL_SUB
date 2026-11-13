@@ -1,5 +1,5 @@
 import { InlineKeyboard } from 'grammy';
-import { emojiHtml, emojiPlain, emojiFromMessage, UI } from '../emoji.js';
+import { emojiHtml, emojiPlain, emojiFromMessage, productButton, UI } from '../emoji.js';
 import prisma from '../db.js';
 import logger from '../logger.js';
 import config from '../config.js';
@@ -519,7 +519,7 @@ async function handleAdminText(ctx) {
         `💵 Price: <b>${money(num(p.price))}</b> each\n` +
         `📦 Total in stock now: <b>${available}</b>\n\n` +
         `Tap below to grab one before it's gone.`;
-      const buyKb = { inline_keyboard: [[{ text: `${emojiPlain(p.emoji)} Buy Now`, callback_data: `p:${p.id}`, style: 'success' }]] };
+      const buyKb = { inline_keyboard: [[productButton(p, 'Buy Now', `p:${p.id}`, { style: 'success' })]] };
       (async () => {
         for (const u of users) {
           try {
@@ -587,7 +587,7 @@ function broadcastPriceChange(p, oldPrice, newPrice) {
     `${emojiHtml(p.emoji)} <b>${escapeHtml(p.name)}</b>\n\n` +
     `${money(oldPrice)} → <b>${money(newPrice)}</b>\n\n` +
     (drop ? `Grab it before the price goes back up.` : `Price has gone up — order soon.`);
-  const kb = { inline_keyboard: [[{ text: `${emojiPlain(p.emoji)} Buy Now`, callback_data: `p:${p.id}`, style: 'success' }]] };
+  const kb = { inline_keyboard: [[productButton(p, 'Buy Now', `p:${p.id}`, { style: 'success' })]] };
   (async () => {
     const users = await prisma.user.findMany({ where: { isBanned: false }, select: { telegramId: true } });
     for (const u of users) {
