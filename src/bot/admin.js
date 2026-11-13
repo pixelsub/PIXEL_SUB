@@ -468,9 +468,16 @@ async function handleAdminText(ctx) {
   if (st.action === 'edit_price') {
     const price = parseFloat(text.replace(',', '.'));
     if (!(price >= 0)) { await ctx.reply('❌ Please send a valid number, e.g. 4.99'); return true; }
-    await prisma.product.update({ where: { id: st.productId }, data: { price } });
+    const before = await prisma.product.findUnique({ where: { id: st.productId } });
+    const p = await prisma.product.update({ where: { id: st.productId }, data: { price } });
     clearState(ctx.from.id);
-    await ctx.reply(`✅ Price updated to ${money(price)}.`, { parse_mode: 'HTML', reply_markup: new InlineKeyboard().text('⬅️ Product', `a:prod:${st.productId}`) });
+    const oldPrice = before ? num(before.price) : price;
+    const changed = Math.round(oldPrice * 100) !== Math.round(price * 100);
+    await ctx.reply(
+      `✅ Price updated to ${money(price)}.` + (changed && p.isActive ? '\n📣 Notifying all users…' : ''),
+      { parse_mode: 'HTML', reply_markup: new InlineKeyboard().text('⬅️ Product', `a:prod:${st.productId}`) }
+    );
+    if (changed && p.isActive) broadcastPriceChange(p, oldPrice, price);
     return true;
   }
 
@@ -570,6 +577,24 @@ async function handleAdminText(ctx) {
   }
 
   return false;
+}
+
+// Tell every (non-banned) user that a product's price went up or down.
+function broadcastPriceChange(p, oldPrice, newPrice) {
+  const drop = newPrice < oldPrice;
+  const msg =
+    (drop ? `🔻 <b>Price Drop!</b>\n\n` : `🔺 <b>Price Increase!</b>\n\n`) +
+    `${emojiHtml(p.emoji)} <b>${escapeHtml(p.name)}</b>\n\n` +
+    `${money(oldPrice)} → <b>${money(newPrice)}</b>\n\n` +
+    (drop ? `Grab it before the price goes back up.` : `Price has gone up — order soon.`);
+  const kb = { inline_keyboard: [[{ text: `${emojiPlain(p.emoji)} Buy Now`, callback_data: `p:${p.id}`, style: 'success' }]] };
+  (async () => {
+    const users = await prisma.user.findMany({ where: { isBanned: false }, select: { telegramId: true } });
+    for (const u of users) {
+      try { await bot.api.sendMessage(u.telegramId.toString(), msg, { parse_mode: 'HTML', reply_markup: kb }); } catch (_) {}
+      await sleep(40);
+    }
+  })().catch((e) => logger.error({ err: e.message }, 'price broadcast failed'));
 }
 
 // ============================ USERS ============================
