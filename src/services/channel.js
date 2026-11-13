@@ -15,7 +15,7 @@ import prisma from '../db.js';
 import config from '../config.js';
 import logger from '../logger.js';
 import { bot } from '../bot/instance.js';
-import { emojiHtml, UI } from '../emoji.js';
+import { emojiHtml, productButton, UI } from '../emoji.js';
 import { escapeHtml, money, num, sleep } from '../utils.js';
 import { getAllSettings, getSetting, setSetting } from './settings.js';
 import { STOCK_COUNT, stockOf } from './stock.js';
@@ -358,7 +358,52 @@ let announceTimer = null;
 export function queueNewProductCheck(delayMs = 4000) {
   if (!bot) return;
   clearTimeout(announceTimer);
-  announceTimer = setTimeout(() => announceNewProducts().catch((e) => logger.warn({ err: e.message }, 'new product announce failed')), delayMs);
+  announceTimer = setTimeout(() => {
+    announceNewProducts().catch((e) => logger.warn({ err: e.message }, 'new product announce failed'));
+    announceNewProductsToUsers().catch((e) => logger.warn({ err: e.message }, 'new product user DM failed'));
+  }, delayMs);
+}
+
+// ---- Direct messages to every user when a new product goes on sale ----------
+// Independent of the channel. "Already told users" is tracked in settings (not
+// ChannelPost) so the channel history stays clean. Ids are claimed BEFORE
+// sending, so a crash or second tick can never message users twice.
+let notifyingUsers = false;
+export async function announceNewProductsToUsers() {
+  if (notifyingUsers || !bot) return { notified: 0 };
+  notifyingUsers = true;
+  try {
+    const s = await getAllSettings();
+    if (s.user_new_enabled !== 'true') return { notified: 0 };
+    // First run: start from "now" so existing products are never blasted out.
+    if (!s.user_new_since) { await setSetting('user_new_since', new Date().toISOString()); return { notified: 0 }; }
+    const since = new Date(Math.max(new Date(s.user_new_since).getTime(), Date.now() - NEW_PRODUCT_WINDOW_MS));
+    const told = new Set(String(s.user_new_notified || '').split(',').filter(Boolean));
+    const fresh = (await listedProducts({ createdAt: { gte: since } })).filter((p) => inStock(p) && !told.has(String(p.id)));
+    if (!fresh.length) return { notified: 0 };
+    await setSetting('user_new_notified', [...told, ...fresh.map((p) => p.id)].slice(-500).join(','));
+
+    let text, keyboard;
+    if (fresh.length > COMBINE_NEW_ABOVE) {
+      text = ['🆕 <b>New Products Added!</b>', '', ...fresh.flatMap((p) => [...productLines(p), ''])].join('\n').trim();
+      keyboard = { inline_keyboard: [[{ text: '🛍️ Shop', callback_data: 'shop' }]] };
+    }
+    const users = await prisma.user.findMany({ where: { isBanned: false }, select: { telegramId: true } });
+    const batches = text ? [{ text, keyboard }] : fresh.map((p) => ({
+      text: productBlock(p, '🆕 <b>New Product Added!</b>'),
+      keyboard: { inline_keyboard: [[productButton(p, 'Buy Now', `p:${p.id}`, { style: 'success' })]] },
+    }));
+    for (const b of batches) {
+      for (const u of users) {
+        try { await bot.api.sendMessage(u.telegramId.toString(), b.text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: b.keyboard }); } catch { /* blocked the bot */ }
+        await sleep(40);
+      }
+    }
+    logger.info({ products: fresh.length, users: users.length }, 'new product DM sent');
+    return { notified: fresh.length };
+  } finally {
+    notifyingUsers = false;
+  }
 }
 
 async function installedAt() {
@@ -449,6 +494,7 @@ async function tick() {
     await closeStuckPending();
     await runDailyIfDue();
     await announceNewProducts();
+    await announceNewProductsToUsers();
   } catch (e) {
     logger.warn({ err: e.message }, 'channel scheduler tick failed');
   } finally {

@@ -19,6 +19,8 @@ export const DEFAULT_SETTINGS = {
   channel_daily_time: '10:00', // Asia/Dhaka
   channel_daily_show_soldout: 'false',
   channel_new_enabled: 'true',
+  // DM every user when a new product goes on sale (see announceNewProductsToUsers)
+  user_new_enabled: 'true',
   channel_daily_header: "🔔 <b>{shop_name} • TODAY'S STOCK UPDATE</b>",
   channel_footer: '⚡ Instant delivery · 💬 24/7 support\n🛒 Tap <b>Shop Now</b> to order!',
   maintenance_text: '🛠️ The shop is briefly down for maintenance. Please check back soon!',
