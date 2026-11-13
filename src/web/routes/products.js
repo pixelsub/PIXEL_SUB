@@ -8,6 +8,11 @@ function emojiFromBody(b, fallback) {
   const id = String(b.emojiId ?? '').trim();
   return encodeEmoji(char, /^\d+$/.test(id) ? id : '');
 }
+// Reseller discount %: blank/0 = none; otherwise clamped to 0–100.
+function discountFromBody(v) {
+  const n = Number(v);
+  return v === '' || v == null || !Number.isFinite(n) || n <= 0 ? null : Math.min(100, n);
+}
 import prisma from '../../db.js';
 import { requireAuth } from '../auth.js';
 import { num } from '../../utils.js';
@@ -26,6 +31,7 @@ function serializeProduct(p) {
     description: p.description,
     price: num(p.price),
     cost: num(p.cost),
+    resellerDiscountPct: num(p.resellerDiscountPct),
     categoryId: p.categoryId,
     category: p.category ? { id: p.category.id, name: p.category.name, emoji: p.category.emoji } : null,
     isActive: p.isActive,
@@ -98,6 +104,7 @@ router.post('/', async (req, res) => {
       description: b.description || '',
       price: Number(b.price),
       cost: Number(b.cost) || 0,
+      resellerDiscountPct: discountFromBody(b.resellerDiscountPct),
       categoryId: b.categoryId ? Number(b.categoryId) : null,
       isActive: b.isActive !== false,
       sortOrder: Number(b.sortOrder) || 0,
@@ -118,6 +125,7 @@ router.put('/:id', async (req, res) => {
   if (b.description !== undefined) data.description = b.description;
   if (b.price !== undefined) data.price = Number(b.price);
   if (b.cost !== undefined) data.cost = Number(b.cost) || 0;
+  if (b.resellerDiscountPct !== undefined) data.resellerDiscountPct = discountFromBody(b.resellerDiscountPct);
   if (b.categoryId !== undefined) data.categoryId = b.categoryId ? Number(b.categoryId) : null;
   if (b.isActive !== undefined) {
     data.isActive = Boolean(b.isActive);

@@ -553,9 +553,17 @@ async function creditTopUp(order) {
  * Pay for a product immediately using the user's wallet balance.
  * Deducts balance, creates a PAID order, and delivers right away.
  */
+// Unit price a reseller-API customer pays: the product price minus the
+// per-product reseller discount the admin set (none by default).
+export function resellerUnitPrice(product) {
+  const pct = Math.min(100, Math.max(0, num(product.resellerDiscountPct)));
+  return Math.max(0.01, Math.round(num(product.price) * (1 - pct / 100) * 100 + 1e-9) / 100);
+}
+
 export async function payWithBalance({ user, product, quantity, resellerRef = null, apiKeyId = null }) {
   quantity = Math.max(1, Math.floor(Number(quantity) || 1));
-  const unitPrice = num(product.price);
+  // API orders get the reseller discount; normal bot purchases pay the shop price.
+  const unitPrice = apiKeyId != null ? resellerUnitPrice(product) : num(product.price);
   const total = +(unitPrice * quantity).toFixed(2);
 
   // Re-read balance fresh to avoid stale reads.

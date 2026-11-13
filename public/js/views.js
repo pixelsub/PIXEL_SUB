@@ -248,12 +248,13 @@ const Views = (() => {
       : el('span', { class: 'stock-chip', text: '♾️ Unlimited' });
     const activeChip = p.isActive ? null : el('span', { class: 'badge EXPIRED', text: 'Hidden' });
     const supplierChip = p.supplierId ? el('span', { class: 'badge PAID', text: `🚚 ${p.supplierName || 'Supplier'}` }) : null;
+    const discChip = p.resellerDiscountPct > 0 ? el('span', { class: 'badge DELIVERED', title: 'Reseller API discount', text: `🤝 -${p.resellerDiscountPct}%` }) : null;
     return el('div', { class: 'card prod-card' + (p.isActive ? '' : ' dim') }, [
       el('div', { class: 'prod-top' }, [
         el('div', { class: 'prod-emoji', text: p.emoji }),
         el('div', {}, [el('div', { class: 'prod-name', text: p.name }), el('div', { class: 'prod-price', text: money(p.price) })]),
       ]),
-      el('div', { class: 'prod-meta' }, [stockChip, supplierChip, activeChip]),
+      el('div', { class: 'prod-meta' }, [stockChip, supplierChip, discChip, activeChip]),
       el('div', { class: 'prod-actions' }, [
         p.usesStock && !p.supplierId ? el('button', { class: 'btn btn-sm btn-good', html: '📦 Stock', onclick: () => stockModal(p) }) : null,
         el('button', { class: 'btn btn-sm', html: '✎ Edit', onclick: () => productModal(p) }),
@@ -270,6 +271,7 @@ const Views = (() => {
       field('Premium emoji ID (optional)', `<input id="p-emoji-id" inputmode="numeric" placeholder="e.g. 5321197740800120767" value="${esc(p?.emojiId || '')}" /><span class="hint">Shown in the Telegram bot instead of the emoji. Send the premium emoji to the bot as admin to get its ID. Leave empty for a normal emoji.</span>`),
       field('Price (USD)', `<input id="p-price" type="number" step="0.01" min="0" value="${p?.price ?? ''}" />`),
       field('Your cost (USD)', `<input id="p-cost" type="number" step="0.01" min="0" value="${p?.cost ?? 0}" /><span class="hint">What this item costs you. Used for profit only — never shown to customers.</span>`),
+      field('Reseller API discount (%)', `<input id="p-rdisc" type="number" step="0.1" min="0" max="100" placeholder="0 = no discount" value="${p?.resellerDiscountPct ? p.resellerDiscountPct : ''}" /><span class="hint">Resellers ordering through your API pay this much less on this product (e.g. 2 = 2% off). Normal bot customers still pay the full price. Leave empty for no discount.</span>`, true),
       field('Name', `<input id="p-name" value="${esc(p?.name || '')}" />`, true),
       field('Description', `<textarea id="p-desc" placeholder="Shown on the product page">${esc(p?.description || '')}</textarea>`, true),
       field('Uses stock inventory', `<label class="switch"><input type="checkbox" id="p-stock" ${p?.usesStock !== false ? 'checked' : ''}/><span class="track"></span></label><span class="hint">Off = unlimited, delivers fixed content</span>`, true),
@@ -283,6 +285,7 @@ const Views = (() => {
         emojiId: f('p-emoji-id').value.trim(),
         description: f('p-desc').value, price: parseFloat(f('p-price').value),
         cost: parseFloat(f('p-cost').value) || 0,
+        resellerDiscountPct: f('p-rdisc').value.trim(),
         usesStock: f('p-stock').checked, fixedContent: f('p-fixed').value,
         isActive: f('p-active').checked,
       };

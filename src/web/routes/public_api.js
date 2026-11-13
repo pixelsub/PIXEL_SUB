@@ -25,7 +25,7 @@ import logger from '../../logger.js';
 import { emojiPlain } from '../../emoji.js';
 import { num } from '../../utils.js';
 import { hashApiKey } from '../../services/api_keys.js';
-import { payWithBalance, availableStock } from '../../services/orders.js';
+import { payWithBalance, availableStock, resellerUnitPrice } from '../../services/orders.js';
 import { STOCK_COUNT, stockOf } from '../../services/stock.js';
 import { render } from '../../services/settings.js';
 
@@ -91,7 +91,9 @@ function serialize(p) {
     name: p.name,
     emoji: emojiPlain(p.emoji),
     description: p.description,
-    price: num(p.price),
+    // The price THIS reseller pays (after any per-product reseller discount).
+    price: resellerUnitPrice(p),
+    ...(num(p.resellerDiscountPct) > 0 ? { listPrice: num(p.price), discountPct: num(p.resellerDiscountPct) } : {}),
     currency: config.shop.currency,
     category: p.category && p.category.isActive
       ? { id: p.category.id, name: p.category.name, emoji: p.category.emoji }
@@ -236,7 +238,7 @@ router.post('/orders', requireReseller, async (req, res) => {
     await releaseRef();
     const balance = num((await prisma.user.findUnique({ where: { id: req.reseller.id } }))?.balance);
     if (e.code === 'INSUFFICIENT_BALANCE') {
-      return res.status(402).json({ error: 'Insufficient balance', code: e.code, balance, required: +(num(product.price) * quantity).toFixed(2) });
+      return res.status(402).json({ error: 'Insufficient balance', code: e.code, balance, required: +(resellerUnitPrice(product) * quantity).toFixed(2) });
     }
     if (e.code === 'OUT_OF_STOCK') {
       const available = product.usesStock ? await availableStock(product.id) : null;

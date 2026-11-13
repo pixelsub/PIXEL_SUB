@@ -82,6 +82,8 @@ model Product {
   supplierSelected  Boolean  @default(false)
   // Per-product markup %. null = use the supplier's default markupPct.
   markupPct         Decimal? @db.Decimal(7, 2)
+  // Discount (%) reseller-API customers get on this product. null/0 = none.
+  resellerDiscountPct Decimal? @db.Decimal(5, 2)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
