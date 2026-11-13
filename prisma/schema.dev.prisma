@@ -277,6 +277,8 @@ model Referral {
   bonusPaid        Float    @default(0)
   commissionOrders Int      @default(0) // purchases already commissioned
   commissionTotal  Float    @default(0)
+  resellerBonusPaid Float   @default(0)
+  resellerSpend     Float   @default(0)
   createdAt        DateTime @default(now())
 
   @@index([referrerId, createdAt])

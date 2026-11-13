@@ -6,6 +6,7 @@ import { requireAuth } from '../auth.js';
 import { num } from '../../utils.js';
 import { emojiPlain } from '../../emoji.js';
 import { generateApiKey } from '../../services/api_keys.js';
+import { awardResellerBonus } from '../../services/referrals.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -179,6 +180,7 @@ router.post('/', async (req, res) => {
     data: { name, keyPrefix: prefix, keyHash: hash, userId: userId ?? null },
     include: { user: true },
   });
+  if (key.userId) awardResellerBonus(key.userId); // referrer's reseller bonus (no-op if not referred)
   res.json({ key: serialize(key), apiKey: raw });
 });
 
@@ -194,6 +196,7 @@ router.put('/:id', async (req, res) => {
   }
   try {
     const key = await prisma.apiKey.update({ where: { id: Number(req.params.id) }, data, include: { user: true } });
+    if (data.userId && key.userId) awardResellerBonus(key.userId);
     res.json({ key: serialize(key) });
   } catch {
     res.status(404).json({ error: 'Not found' });

@@ -14,6 +14,10 @@ export const RULES = {
   commissionPct: envNum('REFERRAL_COMMISSION_PCT', 5), // % of each commissioned purchase
   maxCommissionOrders: envNum('REFERRAL_MAX_COMMISSION_ORDERS', 3), // per invited friend
   dailyLimit: envNum('REFERRAL_DAILY_LIMIT', 20), // new referrals one user can earn from per day
+  // Friends who become resellers (a user linked to a reseller API key):
+  resellerBonus: envNum('REFERRAL_RESELLER_BONUS', 1), // one-time, when the friend becomes a reseller
+  resellerCommissionPct: envNum('REFERRAL_RESELLER_COMMISSION_PCT', 5), // % of the PROFIT on their purchases
+  resellerSpendCap: envNum('REFERRAL_RESELLER_SPEND_CAP', 100), // commission only on their first $100 of purchases
 };
 
 // A friend only counts if their account was created moments ago. Telegram sends
@@ -98,12 +102,21 @@ export async function registerReferral({ referrerId, referred }) {
  */
 export async function awardCommission(orderId) {
   try {
-    const order = await prisma.order.findUnique({ where: { id: orderId } });
-    // Wallet top-ups are not purchases, and reseller-API orders are wholesale.
-    if (!order || order.kind !== 'PURCHASE' || order.apiKeyId != null) return null;
+    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
+    // Wallet top-ups are not purchases.
+    if (!order || order.kind !== 'PURCHASE') return null;
 
     const ref = await prisma.referral.findUnique({ where: { referredId: order.userId } });
-    if (!ref || ref.commissionOrders >= RULES.maxCommissionOrders) return null;
+    if (!ref) return null;
+
+    // A reseller friend (their account is linked to an API key) follows the
+    // reseller rule — profit-based, API orders included — instead of the normal one.
+    if (await prisma.apiKey.findFirst({ where: { userId: order.userId }, select: { id: true } })) {
+      return awardResellerCommission(order, ref);
+    }
+    // Normal customers: reseller-API orders are wholesale, no commission.
+    if (order.apiKeyId != null) return null;
+    if (ref.commissionOrders >= RULES.maxCommissionOrders) return null;
 
     // Cheap early exit for the common repeat call; the UNIQUE orderId below is
     // the real guard against a concurrent double payout.
@@ -145,6 +158,92 @@ export async function awardCommission(orderId) {
     logger.warn({ err: e.message, orderId }, 'referral commission failed');
     return null;
   }
+}
+
+/**
+ * A referred friend just became a reseller (their account was linked to an API
+ * key): pay the referrer the one-time reseller bonus. Safe to call repeatedly —
+ * the guarded claim pays at most once per friend.
+ */
+export async function awardResellerBonus(userId) {
+  try {
+    const bonus = round2(RULES.resellerBonus);
+    if (!(bonus > 0)) return null;
+    const ref = await prisma.referral.findUnique({ where: { referredId: userId } });
+    if (!ref || num(ref.resellerBonusPaid) > 0) return null;
+
+    const paid = await prisma.$transaction(async (tx) => {
+      const claim = await tx.referral.updateMany({
+        where: { id: ref.id, resellerBonusPaid: 0 },
+        data: { resellerBonusPaid: bonus, bonusPaid: { increment: bonus } },
+      });
+      if (claim.count !== 1) return false;
+      await tx.user.update({ where: { id: ref.referrerId }, data: { balance: { increment: bonus } } });
+      return true;
+    }).catch(() => false);
+    if (!paid) return null;
+
+    const [referrer, friend] = await Promise.all([
+      prisma.user.findUnique({ where: { id: ref.referrerId } }),
+      prisma.user.findUnique({ where: { id: userId } }),
+    ]);
+    logger.info({ referrerId: ref.referrerId, referredId: userId, bonus }, 'reseller referral bonus paid');
+    if (referrer) {
+      await sendMessageSafe(
+        referrer.telegramId,
+        `🎉 <b>${escapeHtml(displayName(friend))}</b> is now a reseller!\n\n` +
+          `💰 <b>+${money(bonus)}</b> added to your balance.\n` +
+          `You'll also earn <b>${RULES.resellerCommissionPct}%</b> of the profit on their purchases (up to ${money(RULES.resellerSpendCap)} total).`
+      ).catch(() => {});
+    }
+    return bonus;
+  } catch (e) {
+    logger.warn({ err: e.message, userId }, 'reseller referral bonus failed');
+    return null;
+  }
+}
+
+// Commission for a reseller friend's purchase: % of the order's PROFIT, only on
+// the part of their spending that falls inside the spend cap.
+async function awardResellerCommission(order, ref) {
+  const cap = RULES.resellerSpendCap;
+  const total = num(order.amount);
+  const remaining = cap - num(ref.resellerSpend);
+  if (!(total > 0) || !(remaining > 0)) return null;
+  if (await prisma.referralEarning.findUnique({ where: { orderId: order.id } })) return null;
+
+  const profit = order.items.reduce((s, i) => s + (num(i.unitPrice) - num(i.unitCost)) * i.quantity, 0);
+  if (!(profit > 0)) return null;
+  const share = Math.min(1, remaining / total); // part of this order still inside the cap
+  const amount = round2((profit * share * RULES.resellerCommissionPct) / 100);
+  if (!(amount > 0)) return null;
+
+  const paid = await prisma.$transaction(async (tx) => {
+    const slot = await tx.referral.updateMany({
+      where: { id: ref.id, resellerSpend: { lt: cap } },
+      data: { resellerSpend: { increment: round2(total * share) }, commissionOrders: { increment: 1 }, commissionTotal: { increment: amount } },
+    });
+    if (slot.count !== 1) return false;
+    await tx.referralEarning.create({ data: { referralId: ref.id, orderId: order.id, amount } });
+    await tx.user.update({ where: { id: ref.referrerId }, data: { balance: { increment: amount } } });
+    return true;
+  }).catch(() => false);
+  if (!paid) return null;
+
+  const [referrer, buyer] = await Promise.all([
+    prisma.user.findUnique({ where: { id: ref.referrerId } }),
+    prisma.user.findUnique({ where: { id: order.userId } }),
+  ]);
+  logger.info({ order: order.publicId, referrerId: ref.referrerId, amount }, 'reseller referral commission paid');
+  if (referrer) {
+    await sendMessageSafe(
+      referrer.telegramId,
+      `💸 <b>Commission earned!</b>\n\n` +
+        `Your reseller friend ${escapeHtml(displayName(buyer))} made a purchase.\n` +
+        `💰 <b>+${money(amount)}</b> (${RULES.resellerCommissionPct}% of profit) added to your balance.`
+    ).catch(() => {});
+  }
+  return amount;
 }
 
 export async function referralStats(userId) {

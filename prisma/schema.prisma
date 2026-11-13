@@ -355,6 +355,11 @@ model Referral {
   bonusPaid        Decimal  @default(0) @db.Decimal(12, 2)
   commissionOrders Int      @default(0) // purchases already commissioned
   commissionTotal  Decimal  @default(0) @db.Decimal(12, 2)
+  // Reseller friend: one-time bonus when the friend becomes a reseller (counted
+  // inside bonusPaid too), and how much of their purchases already earned
+  // commission (capped, see REFERRAL_RESELLER_SPEND_CAP).
+  resellerBonusPaid Decimal @default(0) @db.Decimal(12, 2)
+  resellerSpend     Decimal @default(0) @db.Decimal(12, 2)
   createdAt        DateTime @default(now())
 
   @@index([referrerId, createdAt])

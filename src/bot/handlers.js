@@ -626,6 +626,8 @@ async function showReferral(ctx) {
     `🎁 <b>Invite & Earn</b>\n\n` +
     `Share your link. When a friend joins, you get <b>${money(RULES.joinBonus)}</b> instantly, ` +
     `and <b>${RULES.commissionPct}%</b> of their first <b>${RULES.maxCommissionOrders}</b> purchases.\n\n` +
+    `🤝 <b>Invite a reseller</b> and earn <b>${money(RULES.resellerBonus)}</b> when they become one, ` +
+    `plus <b>${RULES.resellerCommissionPct}%</b> of the profit on their purchases (up to ${money(RULES.resellerSpendCap)} total).\n\n` +
     `🔗 <b>Your link</b> (tap to copy):\n<code>${link}</code>\n\n` +
     `👥 Friends invited: <b>${s.invited}</b> (${s.buyers} bought)\n` +
     `📅 Today: <b>${s.today}/${RULES.dailyLimit}</b>\n` +
