@@ -71,7 +71,7 @@ function readBody(b, { requireKey }) {
 async function repriceProducts(supplier) {
   const products = await prisma.product.findMany({ where: { supplierId: supplier.id, supplierPrice: { not: null } } });
   for (const p of products) {
-    const { cost, price } = pricing(supplier, p.supplierPrice);
+    const { cost, price } = pricing(supplier, p.supplierPrice, p.markupPct);
     if (num(p.price) !== price || num(p.cost) !== cost) {
       await prisma.product.update({ where: { id: p.id }, data: { price, cost } });
     }
@@ -174,6 +174,7 @@ router.get('/:id/products', async (req, res) => {
       supplierPrice: num(p.supplierPrice),
       cost: num(p.cost),
       price: num(p.price),
+      markupPct: p.markupPct == null ? null : num(p.markupPct),
       stock: stockOf(p),
       supplierStock: p.supplierStock ?? 0,
       selected: p.supplierSelected,
@@ -196,6 +197,25 @@ router.post('/:id/products/select', async (req, res) => {
   const r = await prisma.product.updateMany({ where, data: { supplierSelected: selected, isActive: selected } });
   if (selected && r.count) queueNewProductCheck();
   res.json({ ok: true, count: r.count });
+});
+
+// Set (or clear, with markupPct: null) a per-product markup and re-price those products.
+router.post('/:id/products/markup', async (req, res) => {
+  const id = Number(req.params.id);
+  const supplier = await prisma.supplier.findUnique({ where: { id } });
+  if (!supplier) return res.status(404).json({ error: 'Not found' });
+  const raw = req.body?.markupPct;
+  const markupPct = raw === null || raw === '' || raw === undefined ? null : Number(raw);
+  if (markupPct !== null && (!Number.isFinite(markupPct) || markupPct < 0 || markupPct > 1000)) {
+    return res.status(400).json({ error: 'Markup must be between 0 and 1000%' });
+  }
+  if (!Array.isArray(req.body?.productIds) || !req.body.productIds.length) return res.status(400).json({ error: 'No products given' });
+  const products = await prisma.product.findMany({ where: { supplierId: id, id: { in: req.body.productIds.map(Number) } } });
+  for (const p of products) {
+    const { cost, price } = pricing(supplier, p.supplierPrice ?? 0, markupPct);
+    await prisma.product.update({ where: { id: p.id }, data: { markupPct, ...(p.supplierPrice != null ? { price, cost } : {}) } });
+  }
+  res.json({ ok: true, count: products.length });
 });
 
 export default router;

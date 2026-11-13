@@ -30,12 +30,14 @@ const round2 = (n) => Math.round(n * 100 + 1e-9) / 100;
 
 // Our unit cost and selling price (shop currency) for a supplier price.
 // The price is computed from the unrounded cost so markup isn't lost to rounding.
-export function pricing(supplier, supplierPrice) {
+// `productMarkup` (optional) overrides the supplier's default markup for one product.
+export function pricing(supplier, supplierPrice, productMarkup = null) {
   const rate = num(supplier.rate) > 0 ? num(supplier.rate) : 1;
   const rawCost = num(supplierPrice) / rate;
+  const pct = productMarkup == null ? num(supplier.markupPct) : num(productMarkup);
   return {
     cost: round2(rawCost),
-    price: Math.max(0.01, round2(rawCost * (1 + num(supplier.markupPct) / 100))),
+    price: Math.max(0.01, round2(rawCost * (1 + pct / 100))),
   };
 }
 
@@ -76,7 +78,8 @@ export async function syncSupplier(supplierId) {
 
     for (const v of variants) {
       seen.add(v.variantId);
-      const { cost, price } = pricing(s, v.price);
+      const p = byVariant.get(v.variantId);
+      const { cost, price } = pricing(s, v.price, p?.markupPct);
       const fields = {
         supplierPrice: v.price,
         supplierStock: v.stock,
@@ -85,7 +88,6 @@ export async function syncSupplier(supplierId) {
         price,
         cost,
       };
-      const p = byVariant.get(v.variantId);
       if (!p) {
         await prisma.product.create({
           data: { ...fields, name: v.name, ...(brandEmoji(v.name) ? { emoji: brandEmoji(v.name) } : {}), description: v.description, usesStock: true, isActive: false, supplierId: supplier.id, supplierVariantId: v.variantId },

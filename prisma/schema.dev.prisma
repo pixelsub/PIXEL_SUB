@@ -64,6 +64,7 @@ model Product {
   supplierMinQty    Int?
   supplierMaxQty    Int?
   supplierSelected  Boolean  @default(false)
+  markupPct         Float?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

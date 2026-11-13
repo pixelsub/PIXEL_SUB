@@ -1001,7 +1001,7 @@ const Views = (() => {
       tableWrap.innerHTML = '';
       if (!rows.length) return tableWrap.appendChild(emptyState('📦', d.products.length ? 'No products match' : 'No products imported yet — press Sync now'));
       const t = el('table');
-      t.appendChild(el('thead', {}, [el('tr', {}, ['Product', `Supplier price (${s.currency})`, 'Your cost', 'Your price', 'Stock', 'Sold', 'In my shop'].map((h) => el('th', { text: h })))]));
+      t.appendChild(el('thead', {}, [el('tr', {}, ['Product', `Supplier price (${s.currency})`, 'Your cost', 'Markup %', 'Your price', 'Stock', 'Sold', 'In my shop'].map((h) => el('th', { text: h })))]));
       t.appendChild(el('tbody', {}, rows.map((p) => {
         const sw = el('input', { type: 'checkbox' }); sw.checked = p.selected;
         sw.onchange = async () => {
@@ -1014,10 +1014,21 @@ const Views = (() => {
         };
         // Selected but hidden on the Products page → say so, it isn't on sale.
         const note = p.selected && !p.isActive ? el('div', { class: 't-muted', style: 'font-size:11px', text: 'hidden on Products page' }) : null;
+        // Blank = follow the supplier default; a number = this product's own markup.
+        const mk = el('input', { type: 'number', step: '0.1', min: '0', style: 'width:72px', placeholder: String(s.markupPct), value: p.markupPct == null ? '' : String(p.markupPct) });
+        mk.onchange = async () => {
+          try {
+            const v = mk.value.trim() === '' ? null : Number(mk.value);
+            await API.post(`/suppliers/${id}/products/markup`, { productIds: [p.id], markupPct: v });
+            toast(v == null ? `${p.name}: default markup (${s.markupPct}%)` : `${p.name}: markup ${v}%`);
+            reload();
+          } catch (e) { toast(e.message, 'bad'); }
+        };
         return el('tr', {}, [
           el('td', {}, [el('div', { class: 't-strong', text: p.name }), el('div', { class: 't-muted mono', style: 'font-size:11px', text: p.variantId }), note]),
           el('td', { text: fmtNum(p.supplierPrice) }),
           el('td', { class: 't-muted', text: money(p.cost) }),
+          el('td', {}, [mk]),
           el('td', { class: 't-strong', text: money(p.price) }),
           el('td', {}, [el('span', { class: `stock-chip ${p.supplierStock === 0 ? 'zero' : p.supplierStock <= 3 ? 'low' : ''}`, text: p.supplierStock === 0 ? 'Out' : String(p.supplierStock) })]),
           el('td', { text: String(p.sold) }),
@@ -1035,7 +1046,7 @@ const Views = (() => {
       el('div', { class: 'toolbar' }, [
         el('button', { class: 'btn btn-sm', text: '‹ All suppliers', onclick: () => suppliers() }),
         el('h2', { style: 'font-family:var(--font-head);margin:0 0 0 8px', text: `🚚 ${s.name}` }),
-        el('span', { class: 't-muted', text: `Balance: ${fmtNum(s.balance, s.currency)} · +${s.markupPct}% markup · synced ${s.lastSyncAt ? timeAgo(s.lastSyncAt) : 'never'}` }),
+        el('span', { class: 't-muted', text: `Balance: ${fmtNum(s.balance, s.currency)} · +${s.markupPct}% default markup · synced ${s.lastSyncAt ? timeAgo(s.lastSyncAt) : 'never'}` }),
       ]),
       el('div', { class: 'card', style: 'margin-top:14px' }, [
         el('div', { class: 'row-flex', style: 'gap:8px;flex-wrap:wrap;margin-bottom:12px' }, [
@@ -1043,6 +1054,18 @@ const Views = (() => {
           bulk('✅ Add all in stock', 'btn-primary', { selected: true, inStockOnly: true }, 'products added to your shop'),
           bulk('Remove all', 'btn-danger', { selected: false }, 'products removed from your shop',
             { title: 'Remove all from your shop?', message: `All ${selectedCount} selected products from ${s.name} will be removed from your Products page and the bot.`, confirmText: 'Remove all', danger: true }),
+          el('button', { class: 'btn btn-sm', text: '% Set markup (shown)', title: 'Apply one markup % to every product currently shown (use search/filter first)', onclick: async () => {
+            const q = supState.q.toLowerCase();
+            const shown = d.products.filter((p) => (!q || p.name.toLowerCase().includes(q)) &&
+              (supState.filter === 'all' || (supState.filter === 'selected' ? p.selected : !p.selected)));
+            if (!shown.length) return toast('No products shown', 'bad');
+            const input = window.prompt(`Markup % for ${shown.length} shown products (e.g. 20 or 30). Leave empty to reset to supplier default (${s.markupPct}%):`, '');
+            if (input === null) return;
+            try {
+              const r = await API.post(`/suppliers/${id}/products/markup`, { productIds: shown.map((p) => p.id), markupPct: input.trim() === '' ? null : Number(input) });
+              toast(`Markup updated on ${r.count} products`); reload();
+            } catch (e) { toast(e.message, 'bad'); }
+          } }),
           el('button', { class: 'btn btn-sm', text: '🔄 Sync now', onclick: async () => { try { const r = await API.post(`/suppliers/${id}/sync`); toast(`Synced ${r.result.variants} products`); reload(); } catch (e) { toast(e.message, 'bad'); } } }),
         ]),
         el('div', { class: 'hint', style: 'margin-bottom:10px', text: 'Turn on “In my shop” for the products you want to sell — only those appear on your Products page and in the bot. Rename them or change emoji/category on the Products page; price and stock always follow the supplier.' }),

@@ -80,6 +80,8 @@ model Product {
   // Picked by the admin on the Supplier page. Only selected supplier
   // products appear on the Products page and can be sold.
   supplierSelected  Boolean  @default(false)
+  // Per-product markup %. null = use the supplier's default markupPct.
+  markupPct         Decimal? @db.Decimal(7, 2)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
