@@ -13,13 +13,30 @@ let lastResult = null;
 
 // Fire-and-forget broadcast to all non-banned users. Runs in the background,
 // throttled to stay within Telegram's ~30 msg/sec limit.
+// Audience: all non-banned users, or (inactiveDays = N) only users with no
+// delivered product purchase in the last N days (never-bought users included).
+function audienceWhere(inactiveDays) {
+  const days = Math.floor(Number(inactiveDays));
+  const where = { isBanned: false };
+  if (days > 0) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    where.orders = { none: { kind: 'PURCHASE', status: 'DELIVERED', createdAt: { gte: since } } };
+  }
+  return where;
+}
+
+// How many users a given audience would reach (shown before sending).
+router.get('/audience', async (req, res) => {
+  res.json({ count: await prisma.user.count({ where: audienceWhere(req.query.inactiveDays) }) });
+});
+
 router.post('/', async (req, res) => {
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'text required' });
   if (inProgress) return res.status(409).json({ error: 'A broadcast is already running' });
 
   const users = await prisma.user.findMany({
-    where: { isBanned: false },
+    where: audienceWhere(req.body?.inactiveDays),
     select: { telegramId: true },
   });
 

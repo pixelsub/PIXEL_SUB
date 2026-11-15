@@ -596,13 +596,31 @@ const Views = (() => {
     const sendBtn = el('button', { class: 'btn btn-primary', html: '🚀 Send to all users' });
     const progress = el('div', { class: 'hint', style: 'margin-top:10px' });
 
+    // Audience: everyone, or only users who haven't bought in the last N days.
+    const inactiveCheck = el('input', { type: 'checkbox', id: 'bc-inactive' });
+    const daysInput = el('input', { type: 'number', min: '1', value: '15', style: 'width:80px' });
+    const audienceInfo = el('span', { class: 'hint' });
+    const inactiveDays = () => (inactiveCheck.checked ? Math.max(1, Math.floor(Number(daysInput.value) || 15)) : 0);
+    const refreshAudience = async () => {
+      try { const a = await API.get(`/broadcast/audience?inactiveDays=${inactiveDays()}`); audienceInfo.textContent = `→ ${a.count} users will receive this`; }
+      catch { audienceInfo.textContent = ''; }
+    };
+    inactiveCheck.onchange = refreshAudience;
+    daysInput.onchange = refreshAudience;
+    refreshAudience();
+    const audienceRow = el('div', { class: 'row-flex', style: 'margin-top:12px;gap:8px;align-items:center;flex-wrap:wrap' }, [
+      el('label', { class: 'row-flex', style: 'gap:6px;align-items:center' }, [inactiveCheck, el('span', { text: 'Only users who bought nothing in the last' })]),
+      daysInput, el('span', { text: 'days' }), audienceInfo,
+    ]);
+
     sendBtn.onclick = async () => {
       const text = textarea.value.trim();
       if (!text) return toast('Write a message first', 'bad');
-      if (!(await confirmDialog({ title: 'Send broadcast?', message: 'This message will be delivered to every non-banned user.', confirmText: 'Send now' }))) return;
+      const days = inactiveDays();
+      if (!(await confirmDialog({ title: 'Send broadcast?', message: days ? `This message will be delivered only to users who bought nothing in the last ${days} days.` : 'This message will be delivered to every non-banned user.', confirmText: 'Send now' }))) return;
       sendBtn.disabled = true;
       try {
-        const r = await API.post('/broadcast', { text });
+        const r = await API.post('/broadcast', { text, inactiveDays: days });
         toast(`Broadcasting to ${r.recipients} users…`);
         pollBroadcast(progress, sendBtn);
       } catch (e) { toast(e.message, 'bad'); sendBtn.disabled = false; }
@@ -611,6 +629,7 @@ const Views = (() => {
     const composer = el('div', { class: 'card' }, [
       el('div', { class: 'card-head' }, [el('h3', { text: '📣 New Broadcast' })]),
       textarea,
+      audienceRow,
       el('div', { class: 'modal-foot', style: 'margin-top:14px' }, [sendBtn]),
       progress,
     ]);
