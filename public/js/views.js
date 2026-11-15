@@ -271,15 +271,23 @@ const Views = (() => {
     try { cats = (await API.categories()).categories; } catch (e) { return toast(e.message, 'bad'); }
     const nameIn = el('input', { placeholder: 'Group name, e.g. ChatGPT' });
     const emojiIn = el('input', { value: '📁', maxlength: '8', style: 'width:70px' });
+    const emojiIdIn = el('input', { placeholder: 'Premium emoji ID (optional)', inputmode: 'numeric', style: 'width:230px' });
     const add = el('button', { class: 'btn btn-primary', text: '＋ Add group' });
     add.onclick = async () => {
       if (!nameIn.value.trim()) return toast('Enter a group name', 'bad');
-      try { await API.post('/products/meta/categories', { name: nameIn.value.trim(), emoji: emojiIn.value.trim() || '📁' }); toast('Group added'); closeModal(); groupsModal(); }
+      try { await API.post('/products/meta/categories', { name: nameIn.value.trim(), emoji: emojiIn.value.trim() || '📁', emojiId: emojiIdIn.value.trim() }); toast('Group added'); closeModal(); groupsModal(); }
       catch (e) { toast(e.message, 'bad'); }
     };
     const rows = cats.length
       ? cats.map((c) => el('div', { class: 'row-flex', style: 'padding:8px 0;border-bottom:1px solid var(--stroke);justify-content:space-between' }, [
           el('span', { class: 't-strong', text: `${c.emoji} ${c.name}` }),
+          (() => {
+            const idIn = el('input', { value: c.emojiId || '', placeholder: 'Premium emoji ID', inputmode: 'numeric', style: 'width:190px' });
+            const saveId = el('button', { class: 'btn btn-sm', text: 'Save emoji', onclick: async () => {
+              try { await API.put(`/products/meta/categories/${c.id}`, { emoji: c.emoji, emojiId: idIn.value.trim() }); toast('Group emoji saved'); } catch (e) { toast(e.message, 'bad'); }
+            } });
+            return el('span', { class: 'row-flex', style: 'gap:6px' }, [idIn, saveId]);
+          })(),
           el('button', { class: 'btn btn-sm btn-danger', text: 'Delete', onclick: async () => {
             if (!(await confirmDialog({ title: 'Delete group?', message: `“${c.name}” will be removed. Its products stay in the shop as normal products.`, confirmText: 'Delete', danger: true }))) return;
             try { await API.del(`/products/meta/categories/${c.id}`); toast('Group deleted'); closeModal(); groupsModal(); products(); } catch (e) { toast(e.message, 'bad'); }
@@ -289,7 +297,7 @@ const Views = (() => {
     modal({
       title: '📁 Product groups',
       subtitle: 'A group shows as one button in the bot; tapping it lists its products (e.g. ChatGPT → Plus, GO). Assign a product to a group from its Edit screen. Products without a group stay as normal buttons.',
-      body: el('div', {}, [el('div', { class: 'row-flex', style: 'gap:8px;margin-bottom:12px' }, [emojiIn, nameIn, add]), ...rows]),
+      body: el('div', {}, [el('div', { class: 'row-flex', style: 'gap:8px;margin-bottom:12px' }, [emojiIn, emojiIdIn, nameIn, add]), el('div', { class: 'hint', style: 'margin-bottom:8px', text: 'Premium emoji ID: send the premium emoji to the bot as admin to get its ID. Leave empty for a normal emoji.' }), ...rows]),
       footer: [el('button', { class: 'btn btn-ghost', text: 'Close', onclick: closeModal })],
     });
   }

@@ -33,7 +33,7 @@ function serializeProduct(p) {
     cost: num(p.cost),
     resellerDiscountPct: num(p.resellerDiscountPct),
     categoryId: p.categoryId,
-    category: p.category ? { id: p.category.id, name: p.category.name, emoji: p.category.emoji } : null,
+    category: p.category ? { id: p.category.id, name: p.category.name, emoji: emojiPlain(p.category.emoji) } : null,
     isActive: p.isActive,
     sortOrder: p.sortOrder,
     usesStock: p.usesStock,
@@ -62,29 +62,33 @@ router.get('/', async (req, res) => {
 });
 
 // -------- Categories --------
+// Emoji is stored encoded (char + optional premium id); the admin UI gets
+// the plain char and the premium id separately.
+const serializeCategory = (c) => ({ ...c, emoji: emojiPlain(c.emoji), emojiId: parseEmoji(c.emoji).id });
+
 router.get('/meta/categories', async (req, res) => {
   const categories = await prisma.category.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] });
-  res.json({ categories });
+  res.json({ categories: categories.map(serializeCategory) });
 });
 
 router.post('/meta/categories', async (req, res) => {
   const b = req.body || {};
   if (!b.name) return res.status(400).json({ error: 'name required' });
   const category = await prisma.category.create({
-    data: { name: b.name, emoji: b.emoji || '📦', sortOrder: Number(b.sortOrder) || 0 },
+    data: { name: String(b.name).trim().slice(0, 100), emoji: emojiFromBody(b, '📁'), sortOrder: Number(b.sortOrder) || 0 },
   });
-  res.json({ category });
+  res.json({ category: serializeCategory(category) });
 });
 
 router.put('/meta/categories/:id', async (req, res) => {
   const b = req.body || {};
   const data = {};
   if (b.name !== undefined) data.name = String(b.name).trim().slice(0, 100);
-  if (b.emoji !== undefined) data.emoji = String(b.emoji).trim().slice(0, 8) || '📦';
+  if (b.emoji !== undefined || b.emojiId !== undefined) data.emoji = emojiFromBody(b, '📁');
   if (b.sortOrder !== undefined) data.sortOrder = Number(b.sortOrder) || 0;
   if (data.name === '') return res.status(400).json({ error: 'name required' });
   try {
-    res.json({ category: await prisma.category.update({ where: { id: Number(req.params.id) }, data }) });
+    res.json({ category: serializeCategory(await prisma.category.update({ where: { id: Number(req.params.id) }, data })) });
   } catch {
     res.status(404).json({ error: 'Not found' });
   }
