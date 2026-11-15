@@ -22,6 +22,7 @@ import { STOCK_COUNT, stockOf } from './stock.js';
 
 export const TIMEZONE = 'Asia/Dhaka';
 const DAILY_CATCHUP_MS = 4 * 60 * 60 * 1000; // still post up to 4h after the set time
+const DAILY_INTERVAL_DAYS = 2; // auto stock post every 2nd day (1 day gap)
 const DAILY_MAX_FAILURES = 3; // per day, then stop and alert admins
 const NEW_PRODUCT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // never announce older products
 const COMBINE_NEW_ABOVE = 3; // more new products at once → one combined post
@@ -458,6 +459,17 @@ export async function runDailyIfDue(now = new Date()) {
   if (minutes < at || (minutes - at) * 60000 > DAILY_CATCHUP_MS) return { due: false };
   const key = `daily:${date}`;
   if (await prisma.channelPost.findUnique({ where: { dedupeKey: key } })) return { due: false, done: true };
+  // Post every DAILY_INTERVAL_DAYS days (1 day gap) instead of every day.
+  const last = await prisma.channelPost.findFirst({
+    where: { kind: 'daily_stock', dedupeKey: { startsWith: 'daily:' }, status: { in: ['sent', 'deleted'] } },
+    orderBy: { dedupeKey: 'desc' },
+  });
+  if (last) {
+    const lastDate = /^daily:(\d{4}-\d{2}-\d{2})$/.exec(last.dedupeKey)?.[1];
+    if (lastDate && (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${lastDate}T00:00:00Z`)) / 86400000 < DAILY_INTERVAL_DAYS) {
+      return { due: false, skippedGap: true };
+    }
+  }
   const failures = await prisma.channelPost.count({ where: { dedupeKey: { startsWith: `${key}#failed#` } } });
   if (failures >= DAILY_MAX_FAILURES) {
     if (dailyAlerted !== date) {
