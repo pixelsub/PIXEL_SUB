@@ -716,6 +716,92 @@ const Views = (() => {
     }, 1200);
   }
 
+  // ============================ WEEKLY REWARDS ============================
+  async function rewards() {
+    loading();
+    let d;
+    try { d = await API.get('/rewards'); } catch (e) { return mount(errorBox(e)); }
+    const c = d.config;
+    const medal = (r) => ['🥇', '🥈', '🥉'][r - 1] || `#${r}`;
+
+    // On/off switch — every user is messaged when it changes.
+    const toggle = el('input', { type: 'checkbox', id: 'rw-on' });
+    toggle.checked = c.enabled;
+    toggle.onchange = async () => {
+      const want = toggle.checked;
+      const ok = await confirmDialog({
+        title: want ? 'Turn weekly rewards ON?' : 'Turn weekly rewards OFF?',
+        message: want ? 'Every user will get a message announcing the weekly rewards.' : 'Every user will get a message that the weekly rewards are paused.',
+        confirmText: want ? 'Turn on' : 'Turn off',
+      });
+      if (!ok) { toggle.checked = !want; return; }
+      try { await API.post('/rewards/toggle', { enabled: want }); toast(want ? 'Weekly rewards ON — announcing to all users' : 'Weekly rewards OFF — announcing to all users'); rewards(); }
+      catch (e) { toast(e.message, 'bad'); toggle.checked = !want; }
+    };
+    const statusCard = el('div', { class: 'card' }, [
+      el('div', { class: 'card-head' }, [el('h3', { text: '🏆 Weekly top-spender rewards' }), el('label', { class: 'switch' }, [toggle, el('span', { class: 'track' })])]),
+      el('div', { class: 'hint', text: `Every Friday at ${c.time} (Asia/Dhaka) the top ${c.amounts.length} spenders who spent at least ${money(c.threshold)} in the past 7 days get wallet credit automatically. Winners get a DM; every user and the channel get an announcement with masked names.` }),
+      el('div', { class: 'hint', style: 'margin-top:8px', text: c.enabled ? `✅ ON — next payout: ${d.nextPayout ? dateTime(d.nextPayout) : '—'}` : '⏸ OFF — nothing is paid or posted while this is off.' }),
+    ]);
+
+    // Settings
+    const thrIn = el('input', { type: 'number', min: '1', step: '1', value: String(c.threshold) });
+    const amtIn = el('input', { value: c.amounts.join(','), placeholder: '5,3,2' });
+    const timeIn = el('input', { value: c.time, placeholder: '20:00', style: 'width:100px' });
+    const saveBtn = el('button', { class: 'btn btn-primary', text: 'Save settings' });
+    saveBtn.onclick = async () => {
+      saveBtn.disabled = true;
+      try { await API.put('/rewards/config', { threshold: Number(thrIn.value), amounts: amtIn.value, time: timeIn.value.trim() }); toast('Saved'); rewards(); }
+      catch (e) { toast(e.message, 'bad'); saveBtn.disabled = false; }
+    };
+    const settingsCard = el('div', { class: 'card' }, [
+      el('div', { class: 'card-head' }, [el('h3', { text: '⚙️ Settings' })]),
+      el('div', { class: 'form-grid' }, [
+        field('Minimum spend in the week (USD)', '', false),
+        field('Rewards for 1st, 2nd, 3rd… (USD, comma separated)', '', false),
+        field('Payout time every Friday (Dhaka, 24h)', '', false),
+      ]),
+    ]);
+    const grid = settingsCard.querySelector('.form-grid');
+    const fields = grid.querySelectorAll('.field');
+    fields[0].appendChild(thrIn); fields[1].appendChild(amtIn); fields[2].appendChild(timeIn);
+    settingsCard.appendChild(el('div', { style: 'margin-top:12px' }, [saveBtn]));
+    settingsCard.appendChild(el('div', { class: 'hint', style: 'margin-top:8px', text: 'Only delivered shop purchases count (wallet top-ups and reseller-API orders are excluded). Admins and banned users never win.' }));
+
+    // Live standings
+    const standRows = d.standings.length
+      ? d.standings.map((r) => el('tr', {}, [
+          el('td', { text: medal(r.rank) }), el('td', { class: 't-strong', text: r.name }), el('td', { class: 'mono', text: r.telegramId }),
+          el('td', { text: money(r.spent) }),
+          el('td', {}, [r.qualified ? el('span', { class: 'badge DELIVERED', text: r.reward > 0 ? `wins ${money(r.reward)}` : 'qualified' }) : el('span', { class: 't-muted', text: `needs ${money(c.threshold - r.spent)} more` })]),
+        ]))
+      : [el('tr', {}, [el('td', { colspan: '5', class: 't-muted', text: 'No purchases yet this week.' })])];
+    const standCard = el('div', { class: 'card', style: 'margin-top:18px' }, [
+      el('div', { class: 'card-head' }, [el('h3', { text: '📈 This week so far' }), el('div', { class: 'sub', text: `since ${dateTime(d.windowFrom)}` })]),
+      el('div', { class: 'table-wrap' }, [el('table', {}, [
+        el('thead', {}, [el('tr', {}, ['', 'Customer', 'Telegram ID', 'Spent', 'Status'].map((h) => el('th', { text: h })))]),
+        el('tbody', {}, standRows),
+      ])]),
+    ]);
+
+    // History
+    const histRows = d.history.length
+      ? d.history.map((h) => el('tr', {}, [
+          el('td', { text: h.weekKey }), el('td', { text: medal(h.rank) }), el('td', { class: 't-strong', text: h.name }),
+          el('td', { text: money(h.spent) }), el('td', { class: 't-strong', text: money(h.reward) }),
+        ]))
+      : [el('tr', {}, [el('td', { colspan: '5', class: 't-muted', text: 'No rewards paid yet.' })])];
+    const histCard = el('div', { class: 'card', style: 'margin-top:18px' }, [
+      el('div', { class: 'card-head' }, [el('h3', { text: '🧾 Past winners' })]),
+      el('div', { class: 'table-wrap' }, [el('table', {}, [
+        el('thead', {}, [el('tr', {}, ['Friday', 'Rank', 'Winner', 'Spent', 'Reward'].map((h) => el('th', { text: h })))]),
+        el('tbody', {}, histRows),
+      ])]),
+    ]);
+
+    mount(el('div', {}, [statusCard, el('div', { style: 'margin-top:18px' }, [settingsCard]), standCard, histCard]));
+  }
+
   // ============================ SETTINGS ============================
   async function settings() {
     loading();
@@ -1421,5 +1507,5 @@ const Views = (() => {
     ]);
   }
 
-  return { dashboard, products, orders, users, referrals, broadcast, settings, apiKeys, suppliers, channel };
+  return { dashboard, products, orders, users, referrals, broadcast, settings, apiKeys, suppliers, channel, rewards };
 })();

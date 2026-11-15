@@ -296,3 +296,22 @@ model ReferralEarning {
 
   @@index([referralId])
 }
+
+// ------------------------------------------------------------------
+// Weekly rewards — top spenders of the week get wallet credit. One row per
+// winner; (weekKey, rank) is unique so a week can never pay a rank twice.
+// Plain ids (no relations): adds a table only, never touches existing ones.
+// ------------------------------------------------------------------
+model WeeklyReward {
+  id        Int      @id @default(autoincrement())
+  weekKey   String   // payout date in Dhaka, e.g. "2026-11-20"
+  rank      Int
+  userId    Int
+  spent     Float
+  reward    Float
+  announced Boolean  @default(false) // winner DM + all-user message + channel post done
+  createdAt DateTime @default(now())
+
+  @@unique([weekKey, rank])
+  @@index([userId])
+}

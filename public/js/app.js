@@ -8,6 +8,7 @@
     orders: { title: 'Orders', render: Views.orders },
     users: { title: 'Customers', render: Views.users },
     referrals: { title: 'Referrals', render: Views.referrals },
+    rewards: { title: 'Weekly Rewards', render: Views.rewards },
     channel: { title: 'Channel Posting', render: Views.channel },
     broadcast: { title: 'Broadcast', render: Views.broadcast },
     suppliers: { title: 'Suppliers', render: Views.suppliers },

@@ -6,6 +6,7 @@ import { startBot, stopBot } from './bot/index.js';
 import { startPoller, stopPoller } from './payments/poller.js';
 import { startSupplierWorker, stopSupplierWorker } from './suppliers/worker.js';
 import { startChannelScheduler, stopChannelScheduler } from './services/channel.js';
+import { startWeeklyRewardScheduler, stopWeeklyRewardScheduler } from './services/weekly_rewards.js';
 import { verifyAccountMatchesPayId } from './payments/binance.js';
 import { ensureDefaults } from './services/settings.js';
 import { ensureBootstrapAdmin } from './web/auth.js';
@@ -45,6 +46,9 @@ async function main() {
   // Telegram channel: daily Today Stock (Asia/Dhaka) + new product posts
   startChannelScheduler();
 
+  // Weekly top-spender rewards (Fridays, Asia/Dhaka) — only acts when switched on in Admin → Rewards
+  startWeeklyRewardScheduler();
+
   // Confirm the advertised Binance ID is the account our API keys can read.
   // Deliberately not awaited into the boot path — a slow exchange must never
   // delay the health check.
@@ -59,6 +63,7 @@ async function shutdown(signal) {
     stopPoller();
     stopSupplierWorker();
     stopChannelScheduler();
+    stopWeeklyRewardScheduler();
     await stopBot();
     await prisma.$disconnect();
   } catch (e) {

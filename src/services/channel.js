@@ -248,6 +248,11 @@ export async function postDailyStock({ createdBy = 'auto', dedupeKey = null } = 
   return publish({ kind: 'daily_stock', dedupeKey, text, keyboard: await shopKeyboard('shop'), createdBy });
 }
 
+// Weekly-reward winners announcement (built by services/weekly_rewards.js).
+export async function postWeeklyWinners(text, dedupeKey) {
+  return publish({ kind: 'weekly_winners', dedupeKey, text, keyboard: await shopKeyboard('shop'), createdBy: 'auto' });
+}
+
 async function loadProduct(productId) {
   const p = await prisma.product.findUnique({ where: { id: Number(productId) }, include: STOCK_COUNT });
   if (!p) throw new ChannelError('Product not found', 'not_found');

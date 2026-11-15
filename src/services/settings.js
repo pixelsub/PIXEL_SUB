@@ -23,6 +23,12 @@ export const DEFAULT_SETTINGS = {
   user_new_enabled: 'true',
   channel_daily_header: "🔔 <b>{shop_name} • TODAY'S STOCK UPDATE</b>",
   channel_footer: '⚡ Instant delivery · 💬 24/7 support\n🛒 Tap <b>Shop Now</b> to order!',
+  // Weekly rewards (see src/services/weekly_rewards.js). Off until the admin
+  // turns it on (which also announces it to every user).
+  weekly_reward_enabled: 'false',
+  weekly_reward_threshold: '100', // min USD spent in the week to qualify
+  weekly_reward_amounts: '5,3,2', // wallet credit for rank 1,2,3
+  weekly_reward_time: '20:00', // payout time every Friday (Asia/Dhaka)
   maintenance_text: '🛠️ The shop is briefly down for maintenance. Please check back soon!',
 };
 
