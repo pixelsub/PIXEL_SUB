@@ -230,17 +230,32 @@ const Views = (() => {
     try { data = await API.products(); } catch (e) { return mount(errorBox(e)); }
     const list = data.products;
 
+    const title = el('h2', { class: 'topbar-title', text: `${list.length} Products`, style: 'font-size:16px' });
+    const search = el('input', { type: 'search', placeholder: '🔍 Search products…', style: 'width:240px', autocomplete: 'off' });
     const head = el('div', { class: 'toolbar' }, [
-      el('div', { class: 'grow' }, [el('h2', { class: 'topbar-title', text: `${list.length} Products`, style: 'font-size:16px' })]),
+      el('div', { class: 'grow' }, [title]),
+      search,
       el('button', { class: 'btn', html: '📁 Groups', onclick: () => groupsModal() }),
       el('button', { class: 'btn btn-primary', html: '＋ New Product', onclick: () => productModal(null) }),
     ]);
 
     const grid = el('div', { class: 'prod-grid' });
-    if (!list.length) grid.appendChild(emptyState('🏷️', 'No products yet — create your first one'));
-    for (const p of list) grid.appendChild(productCard(p));
+    const renderGrid = () => {
+      const q = search.value.trim().toLowerCase();
+      const shown = q
+        ? list.filter((p) => [p.name, p.description, p.category?.name, p.supplierName].some((v) => String(v || '').toLowerCase().includes(q)))
+        : list;
+      title.textContent = q ? `${shown.length} of ${list.length} Products` : `${list.length} Products`;
+      grid.innerHTML = '';
+      if (!list.length) grid.appendChild(emptyState('🏷️', 'No products yet — create your first one'));
+      else if (!shown.length) grid.appendChild(emptyState('🔍', `No product matches “${search.value.trim()}”`));
+      for (const p of shown) grid.appendChild(productCard(p));
+    };
+    search.oninput = renderGrid;
+    renderGrid();
 
     mount(el('div', {}, [head, grid]));
+    search.focus();
   }
 
   function productCard(p) {
