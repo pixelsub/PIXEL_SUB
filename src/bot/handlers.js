@@ -87,14 +87,41 @@ async function showMainMenu(ctx) {
   await smartSend(ctx, welcome, mainMenuKeyboard(false));
 }
 
+// Shop list = products without a group + one entry per group (category) that
+// has at least one active product. Products inside a group only show up after
+// tapping the group.
+async function getShopEntries() {
+  const [products, cats] = await Promise.all([getActiveProducts(), prisma.category.findMany()]);
+  const byId = new Map(cats.map((c) => [c.id, c]));
+  const loose = [];
+  const groups = new Map();
+  for (const p of products) {
+    const c = p.categoryId ? byId.get(p.categoryId) : null;
+    if (!c) { loose.push(p); continue; }
+    if (!groups.has(c.id)) groups.set(c.id, { isGroup: true, id: c.id, name: c.name, emoji: c.emoji, sortOrder: c.sortOrder, items: [] });
+    groups.get(c.id).items.push(p);
+  }
+  const entryInStock = (e) => (e.isGroup ? e.items.some(inStock) : inStock(e));
+  return [...loose, ...groups.values()]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .sort((a, b) => Number(entryInStock(b)) - Number(entryInStock(a)));
+}
+
 async function showShop(ctx) {
-  const products = await getActiveProducts();
-  if (!products.length) {
+  const entries = await getShopEntries();
+  if (!entries.length) {
     await smartSend(ctx, '🛒 The shop is being restocked. Please check back soon!', backMenuKeyboard());
     return;
   }
   const intro = await getSetting('shop_intro');
-  await smartSend(ctx, intro, shopKeyboard(products));
+  await smartSend(ctx, intro, shopKeyboard(entries));
+}
+
+async function showGroup(ctx, groupId) {
+  const entries = await getShopEntries();
+  const g = entries.find((e) => e.isGroup && e.id === groupId);
+  if (!g) return showShop(ctx);
+  await smartSend(ctx, `${emojiHtml(g.emoji)} <b>${escapeHtml(g.name)}</b>\n\nChoose an option:`, shopKeyboard(g.items, { inGroup: true }));
 }
 
 
@@ -730,6 +757,10 @@ export function registerHandlers(bot) {
     await showFaq(ctx);
   });
 
+  bot.callbackQuery(/^g:(\d+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    await showGroup(ctx, Number(ctx.match[1]));
+  });
   bot.callbackQuery(/^p:(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery().catch(() => {});
     await showQuantity(ctx, Number(ctx.match[1]));

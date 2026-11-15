@@ -76,6 +76,20 @@ router.post('/meta/categories', async (req, res) => {
   res.json({ category });
 });
 
+router.put('/meta/categories/:id', async (req, res) => {
+  const b = req.body || {};
+  const data = {};
+  if (b.name !== undefined) data.name = String(b.name).trim().slice(0, 100);
+  if (b.emoji !== undefined) data.emoji = String(b.emoji).trim().slice(0, 8) || '📦';
+  if (b.sortOrder !== undefined) data.sortOrder = Number(b.sortOrder) || 0;
+  if (data.name === '') return res.status(400).json({ error: 'name required' });
+  try {
+    res.json({ category: await prisma.category.update({ where: { id: Number(req.params.id) }, data }) });
+  } catch {
+    res.status(404).json({ error: 'Not found' });
+  }
+});
+
 router.delete('/meta/categories/:id', async (req, res) => {
   try {
     await prisma.category.delete({ where: { id: Number(req.params.id) } });

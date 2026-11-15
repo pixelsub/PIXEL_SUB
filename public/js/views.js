@@ -232,6 +232,7 @@ const Views = (() => {
 
     const head = el('div', { class: 'toolbar' }, [
       el('div', { class: 'grow' }, [el('h2', { class: 'topbar-title', text: `${list.length} Products`, style: 'font-size:16px' })]),
+      el('button', { class: 'btn', html: '📁 Groups', onclick: () => groupsModal() }),
       el('button', { class: 'btn btn-primary', html: '＋ New Product', onclick: () => productModal(null) }),
     ]);
 
@@ -249,12 +250,13 @@ const Views = (() => {
     const activeChip = p.isActive ? null : el('span', { class: 'badge EXPIRED', text: 'Hidden' });
     const supplierChip = p.supplierId ? el('span', { class: 'badge PAID', text: `🚚 ${p.supplierName || 'Supplier'}` }) : null;
     const discChip = p.resellerDiscountPct > 0 ? el('span', { class: 'badge DELIVERED', title: 'Reseller API discount', text: `🤝 -${p.resellerDiscountPct}%` }) : null;
+    const groupChip = p.category ? el('span', { class: 'badge PAID', title: 'Group in the bot', text: `📁 ${p.category.name}` }) : null;
     return el('div', { class: 'card prod-card' + (p.isActive ? '' : ' dim') }, [
       el('div', { class: 'prod-top' }, [
         el('div', { class: 'prod-emoji', text: p.emoji }),
         el('div', {}, [el('div', { class: 'prod-name', text: p.name }), el('div', { class: 'prod-price', text: money(p.price) })]),
       ]),
-      el('div', { class: 'prod-meta' }, [stockChip, supplierChip, discChip, activeChip]),
+      el('div', { class: 'prod-meta' }, [stockChip, groupChip, supplierChip, discChip, activeChip]),
       el('div', { class: 'prod-actions' }, [
         p.usesStock && !p.supplierId ? el('button', { class: 'btn btn-sm btn-good', html: '📦 Stock', onclick: () => stockModal(p) }) : null,
         el('button', { class: 'btn btn-sm', html: '✎ Edit', onclick: () => productModal(p) }),
@@ -263,10 +265,42 @@ const Views = (() => {
     ]);
   }
 
-  function productModal(p) {
+  // Groups (folders) like "ChatGPT" that hold several products in the bot.
+  async function groupsModal() {
+    let cats;
+    try { cats = (await API.categories()).categories; } catch (e) { return toast(e.message, 'bad'); }
+    const nameIn = el('input', { placeholder: 'Group name, e.g. ChatGPT' });
+    const emojiIn = el('input', { value: '📁', maxlength: '8', style: 'width:70px' });
+    const add = el('button', { class: 'btn btn-primary', text: '＋ Add group' });
+    add.onclick = async () => {
+      if (!nameIn.value.trim()) return toast('Enter a group name', 'bad');
+      try { await API.post('/products/meta/categories', { name: nameIn.value.trim(), emoji: emojiIn.value.trim() || '📁' }); toast('Group added'); closeModal(); groupsModal(); }
+      catch (e) { toast(e.message, 'bad'); }
+    };
+    const rows = cats.length
+      ? cats.map((c) => el('div', { class: 'row-flex', style: 'padding:8px 0;border-bottom:1px solid var(--stroke);justify-content:space-between' }, [
+          el('span', { class: 't-strong', text: `${c.emoji} ${c.name}` }),
+          el('button', { class: 'btn btn-sm btn-danger', text: 'Delete', onclick: async () => {
+            if (!(await confirmDialog({ title: 'Delete group?', message: `“${c.name}” will be removed. Its products stay in the shop as normal products.`, confirmText: 'Delete', danger: true }))) return;
+            try { await API.del(`/products/meta/categories/${c.id}`); toast('Group deleted'); closeModal(); groupsModal(); products(); } catch (e) { toast(e.message, 'bad'); }
+          } }),
+        ]))
+      : [el('div', { class: 'hint', text: 'No groups yet.' })];
+    modal({
+      title: '📁 Product groups',
+      subtitle: 'A group shows as one button in the bot; tapping it lists its products (e.g. ChatGPT → Plus, GO). Assign a product to a group from its Edit screen. Products without a group stay as normal buttons.',
+      body: el('div', {}, [el('div', { class: 'row-flex', style: 'gap:8px;margin-bottom:12px' }, [emojiIn, nameIn, add]), ...rows]),
+      footer: [el('button', { class: 'btn btn-ghost', text: 'Close', onclick: closeModal })],
+    });
+  }
+
+  async function productModal(p) {
     const isNew = !p;
+    let cats = [];
+    try { cats = (await API.categories()).categories; } catch { /* group picker just stays empty */ }
     const f = (id) => document.getElementById(id);
     const body = el('div', { class: 'form-grid' }, [
+      field('Group (optional)', `<select id="p-cat"><option value="">— No group (shown directly in the shop) —</option>${cats.map((c) => `<option value="${c.id}" ${p?.categoryId === c.id ? 'selected' : ''}>${esc(c.emoji)} ${esc(c.name)}</option>`).join('')}</select><span class="hint">Put this product inside a group like “ChatGPT”. Create groups with the 📁 Groups button.</span>`, true),
       field('Emoji', `<input id="p-emoji" value="${esc(p?.emoji || '🛍️')}" maxlength="8" />`),
       field('Premium emoji ID (optional)', `<input id="p-emoji-id" inputmode="numeric" placeholder="e.g. 5321197740800120767" value="${esc(p?.emojiId || '')}" /><span class="hint">Shown in the Telegram bot instead of the emoji. Send the premium emoji to the bot as admin to get its ID. Leave empty for a normal emoji.</span>`),
       field('Price (USD)', `<input id="p-price" type="number" step="0.01" min="0" value="${p?.price ?? ''}" />`),
@@ -286,6 +320,7 @@ const Views = (() => {
         description: f('p-desc').value, price: parseFloat(f('p-price').value),
         cost: parseFloat(f('p-cost').value) || 0,
         resellerDiscountPct: f('p-rdisc').value.trim(),
+        categoryId: f('p-cat').value || null,
         usesStock: f('p-stock').checked, fixedContent: f('p-fixed').value,
         isActive: f('p-active').checked,
       };

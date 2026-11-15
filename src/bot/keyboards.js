@@ -24,9 +24,20 @@ export function mainMenuKeyboard(isAdmin = false) {
 // Product list: one per row. Telegram cannot colour a button, so stock state
 // is carried by a marker and by position — sold-out items sort to the bottom
 // in getActiveProducts, so the first thing a customer meets is buyable.
-export function shopKeyboard(products) {
+// Entries may be groups ({ isGroup, items, ... }) — a folder such as
+// "ChatGPT" holding several products; tapping one opens its list.
+export function shopKeyboard(products, { inGroup = false } = {}) {
   const kb = new InlineKeyboard();
   for (const p of products) {
+    if (p.isGroup) {
+      const gAvailable = p.items.some((i) => !i.usesStock || i.available > 0);
+      const from = Math.min(...p.items.map((i) => num(i.price)));
+      const { char: gChar, id: gId } = parseEmoji(p.emoji);
+      kb.text(`${gId ? '' : `${gChar} `}${p.name} | from ${money(from)} | ${p.items.length} options`, `g:${p.id}`);
+      if (gId) kb.icon(gId);
+      kb.style(gAvailable ? 'success' : 'danger').row();
+      continue;
+    }
     const available = !p.usesStock || p.available > 0;
     const tail = !p.usesStock
       ? '♾️'
@@ -40,7 +51,8 @@ export function shopKeyboard(products) {
     if (id) kb.icon(id);
     kb.style(available ? 'success' : 'danger').row();
   }
-  kb.text('🏠 Main Menu', 'menu');
+  if (inGroup) kb.text('⬅️ Back to Shop', 'shop').text('🏠 Menu', 'menu');
+  else kb.text('🏠 Main Menu', 'menu');
   return kb;
 }
 
