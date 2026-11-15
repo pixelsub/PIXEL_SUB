@@ -53,8 +53,13 @@ async function resolveUserId(telegramId) {
 }
 
 router.get('/', async (req, res) => {
-  const [keys, totals] = await Promise.all([
+  const [keys, allItems, totals] = await Promise.all([
     prisma.apiKey.findMany({ orderBy: { id: 'desc' }, include: { user: true } }),
+    // Per-line cost snapshot → total profit across all resellers.
+    prisma.orderItem.findMany({
+      where: { order: { apiKeyId: { not: null }, status: 'DELIVERED' } },
+      select: { quantity: true, unitCost: true, lineTotal: true },
+    }),
     prisma.order.groupBy({
       by: ['apiKeyId'],
       where: { apiKeyId: { not: null }, status: 'DELIVERED' },
@@ -63,7 +68,17 @@ router.get('/', async (req, res) => {
     }),
   ]);
   const byKey = new Map(totals.map((t) => [t.apiKeyId, { orders: t._count._all, revenue: num(t._sum.amount) }]));
+  const totalRevenue = [...byKey.values()].reduce((s, t) => s + t.revenue, 0);
+  const totalOrders = [...byKey.values()].reduce((s, t) => s + t.orders, 0);
+  const totalCost = allItems.reduce((s, i) => s + num(i.unitCost) * i.quantity, 0);
   res.json({
+    summary: {
+      resellers: keys.length,
+      activeResellers: keys.filter((k) => k.isActive).length,
+      orders: totalOrders,
+      spent: +totalRevenue.toFixed(2),
+      profit: +(totalRevenue - totalCost).toFixed(2),
+    },
     keys: keys.map((k) => ({ ...serialize(k), stats: byKey.get(k.id) || { orders: 0, revenue: 0 } })),
     baseUrl: `${config.publicUrl}/api/v1`,
   });

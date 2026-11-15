@@ -1163,7 +1163,15 @@ const Views = (() => {
         el('div', { class: 'row-flex' }, [el('input', { value: example, readonly: true, class: 'mono' }), el('button', { class: 'btn btn-sm', text: 'Copy', onclick: () => copy(example) })])]),
     ]);
 
-    mount(el('div', {}, [el('div', { class: 'grid cols-2' }, [createCard, docsCard]), keysCard]));
+    const sm = data.summary || { resellers: 0, activeResellers: 0, orders: 0, spent: 0, profit: 0 };
+    const summaryTiles = el('div', { class: 'grid cols-4', style: 'margin-bottom:18px' }, [
+      statTile({ icon: '👥', label: 'Total resellers', value: String(sm.resellers), delta: `${sm.activeResellers} active` }),
+      statTile({ icon: '🧾', label: 'Total API orders', value: String(sm.orders) }),
+      statTile({ icon: '💸', label: 'Total spent by resellers', value: money(sm.spent) }),
+      statTile({ icon: '📈', label: 'Total profit from resellers', value: money(sm.profit) }),
+    ]);
+
+    mount(el('div', {}, [summaryTiles, el('div', { class: 'grid cols-2' }, [createCard, docsCard]), keysCard]));
   }
 
   // One reseller: account, wallet, API sales stats, top products, order history.
