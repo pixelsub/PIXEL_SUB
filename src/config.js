@@ -32,6 +32,8 @@ const config = {
   isProd: (process.env.NODE_ENV || 'development') === 'production',
   port: int('PORT', 8080),
   publicUrl: derivePublicUrl(),
+  // Customer-facing website for the "Buy in website" button in the bot menu.
+  websiteUrl: /^https?:\/\//i.test((process.env.WEBSITE_URL || '').trim()) ? process.env.WEBSITE_URL.trim() : '',
 
   telegram: {
     token: required('BOT_TOKEN'),

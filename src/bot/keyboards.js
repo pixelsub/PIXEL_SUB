@@ -8,7 +8,10 @@ const cryptomusConfigured = () => Boolean(config.cryptomus.merchantId && config.
 export function mainMenuKeyboard(isAdmin = false) {
   const kb = new InlineKeyboard()
     .text('Shop', 'shop').icon(UI.shop)
-    .row()
+    .row();
+  // Full-width link under Shop. Shown only when WEBSITE_URL is set.
+  if (config.websiteUrl) kb.url('🌐 Buy in website', config.websiteUrl).row();
+  kb
     .text('My Orders', 'orders').icon(UI.box)
     .text('Balance', 'balance').icon(UI.wallet)
     .row()
