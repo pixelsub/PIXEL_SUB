@@ -106,7 +106,7 @@ router.post('/:id/message', async (req, res) => {
   if (!text) return res.status(400).json({ error: 'text required' });
   const user = await prisma.user.findUnique({ where: { id: Number(req.params.id) } });
   if (!user) return res.status(404).json({ error: 'Not found' });
-  const result = await sendMessageSafe(user.telegramId, `💬 <b>Message from support</b>\n\n${escapeHtml(text)}`);
+  const result = await sendMessageSafe(user.telegramId, `💬 <b>Message from support</b>\n\n${escapeHtml(text)}`, {}, { allowBanned: true });
   res.json(result);
 });
 

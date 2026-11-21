@@ -4,6 +4,7 @@ import config from '../config.js';
 import logger from '../logger.js';
 import { escapeHtml, money, num } from '../utils.js';
 import { getSetting, render } from '../services/settings.js';
+import prisma from '../db.js';
 
 // Send the delivered goods to a customer after payment is confirmed.
 export async function sendDelivery(order) {
@@ -63,9 +64,14 @@ export async function notifyAdmins(text) {
 }
 
 // Generic message helper (used by broadcasts, payment status pings)
-export async function sendMessageSafe(telegramId, text, extra = {}) {
+// Banned users are skipped unless `allowBanned` is set (direct admin support replies).
+export async function sendMessageSafe(telegramId, text, extra = {}, { allowBanned = false } = {}) {
   if (!bot) return { ok: false };
   try {
+    if (!allowBanned) {
+      const u = await prisma.user.findUnique({ where: { telegramId: BigInt(telegramId) }, select: { isBanned: true } });
+      if (u?.isBanned) return { ok: false, error: 'user is banned' };
+    }
     await bot.api.sendMessage(telegramId.toString(), text, { parse_mode: 'HTML', ...extra });
     return { ok: true };
   } catch (e) {

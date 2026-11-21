@@ -553,7 +553,7 @@ async function handleAdminText(ctx) {
     const u = await prisma.user.findUnique({ where: { id: st.userId } });
     clearState(ctx.from.id);
     if (!u) { await ctx.reply('User not found.'); return true; }
-    const r = await sendMessageSafe(u.telegramId, `💬 <b>Message from support</b>\n\n${escapeHtml(text)}`);
+    const r = await sendMessageSafe(u.telegramId, `💬 <b>Message from support</b>\n\n${escapeHtml(text)}`, {}, { allowBanned: true });
     await ctx.reply(r.ok ? '✅ Message delivered.' : `⚠️ Could not deliver: ${r.error || 'unknown'}`, { parse_mode: 'HTML', reply_markup: new InlineKeyboard().text('⬅️ User', `a:user:${st.userId}`) });
     return true;
   }
