@@ -553,7 +553,7 @@ const Views = (() => {
     const tb = el('tbody');
     for (const r of d.referrers) {
       tb.appendChild(el('tr', { style: 'cursor:pointer', onclick: () => referrerDetail(r.referrerId) }, [
-        el('td', {}, [customerCell(r.user)]),
+        el('td', {}, [customerCell(r.user), r.user?.referralBlocked ? el('span', { class: 'badge FAILED', text: 'stopped', style: 'margin-top:4px' }) : null]),
         el('td', { class: 't-strong', text: num(r.invited) }),
         el('td', { text: `${r.today}/${rules.dailyLimit}` }),
         el('td', { text: num(r.buyers) }),
@@ -599,6 +599,23 @@ const Views = (() => {
     }
     table.appendChild(tb);
     body.appendChild(el('div', { class: 'table-wrap', style: 'margin-top:14px' }, [table]));
+
+    const blocked = !!d.referrer.referralBlocked;
+    body.appendChild(el('div', { style: 'margin-top:14px;display:flex;gap:10px;align-items:center' }, [
+      el('button', {
+        class: `btn btn-sm ${blocked ? 'btn-good' : 'btn-danger'}`,
+        html: blocked ? '✓ Resume referral program' : '⛔ Stop referral program',
+        onclick: async () => {
+          if (!blocked && !confirm(`Stop referral program for ${name}? They will be notified on Telegram.`)) return;
+          try {
+            await API.post(`/referrals/${id}/block`, { blocked: !blocked });
+            toast(blocked ? 'Referral program resumed' : 'Referral program stopped — user notified');
+            closeModal(); referrals();
+          } catch (e) { toast(e.message, 'bad'); }
+        },
+      }),
+      blocked ? el('span', { class: 'badge FAILED', text: 'referral stopped' }) : null,
+    ]));
 
     modal({ title: `Referrals by ${name}`, body, wide: true });
   }

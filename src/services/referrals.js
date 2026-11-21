@@ -38,6 +38,30 @@ export function referralLink(botUsername, userId) {
   return `https://t.me/${botUsername}?start=${referralCode(userId)}`;
 }
 
+// A referrer the admin has stopped earns nothing: no new joins, no commission.
+export async function isReferralBlocked(userId) {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { referralBlocked: true } });
+  return !!u?.referralBlocked;
+}
+
+/**
+ * Admin stops (or resumes) a user's referral program. Stopping tells the user
+ * on Telegram. Returns the updated user, or null if not found.
+ */
+export async function setReferralBlocked(userId, blocked) {
+  const user = await prisma.user.update({ where: { id: userId }, data: { referralBlocked: blocked } }).catch(() => null);
+  if (!user) return null;
+  logger.info({ userId, blocked }, 'referral program access changed');
+  await sendMessageSafe(
+    user.telegramId,
+    blocked
+      ? `🚫 <b>Invite & Earn stopped</b>\n\nYour referral program access has been stopped by the admin, ` +
+          `so new invites and commissions are no longer counted.\n\nIf you think this is a mistake, please contact support.`
+      : `✅ <b>Invite & Earn resumed</b>\n\nYour referral program access has been restored. You can invite friends and earn again.`
+  ).catch(() => {});
+  return user;
+}
+
 const displayName = (u) => (u?.username ? '@' + u.username : u?.firstName || 'a friend');
 
 /**
@@ -55,7 +79,7 @@ export async function registerReferral({ referrerId, referred }) {
     }
 
     const referrer = await prisma.user.findUnique({ where: { id: referrerId } });
-    if (!referrer || referrer.isBanned) return { ok: false, reason: 'bad_referrer' };
+    if (!referrer || referrer.isBanned || referrer.referralBlocked) return { ok: false, reason: 'bad_referrer' };
 
     // A person can only be referred once, and an account that already bought
     // something is not new, whatever its age.
@@ -108,6 +132,7 @@ export async function awardCommission(orderId) {
 
     const ref = await prisma.referral.findUnique({ where: { referredId: order.userId } });
     if (!ref) return null;
+    if (await isReferralBlocked(ref.referrerId)) return null;
 
     // A reseller friend (their account is linked to an API key) follows the
     // reseller rule — profit-based, API orders included — instead of the normal one.
@@ -171,6 +196,7 @@ export async function awardResellerBonus(userId) {
     if (!(bonus > 0)) return null;
     const ref = await prisma.referral.findUnique({ where: { referredId: userId } });
     if (!ref || num(ref.resellerBonusPaid) > 0) return null;
+    if (await isReferralBlocked(ref.referrerId)) return null;
 
     const paid = await prisma.$transaction(async (tx) => {
       const claim = await tx.referral.updateMany({

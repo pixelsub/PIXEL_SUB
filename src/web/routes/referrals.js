@@ -2,7 +2,7 @@ import express from 'express';
 import prisma from '../../db.js';
 import { requireAuth } from '../auth.js';
 import { num, startOfDay } from '../../utils.js';
-import { RULES } from '../../services/referrals.js';
+import { RULES, setReferralBlocked } from '../../services/referrals.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -17,6 +17,7 @@ const userBrief = (u) =>
     firstName: u.firstName,
     lastName: u.lastName,
     isBanned: u.isBanned,
+    referralBlocked: u.referralBlocked,
   };
 
 // Overview: totals + one row per referrer (who invited how many, who earned what).
@@ -112,6 +113,14 @@ router.get('/:userId', async (req, res) => {
     },
     friends: list,
   });
+});
+
+// Stop / resume a user's referral program. A stopped user gets a Telegram message.
+router.post('/:userId/block', async (req, res) => {
+  const blocked = req.body?.blocked !== false;
+  const user = await setReferralBlocked(Number(req.params.userId), blocked);
+  if (!user) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true, referralBlocked: user.referralBlocked });
 });
 
 export default router;

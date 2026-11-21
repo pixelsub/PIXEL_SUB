@@ -22,7 +22,8 @@ model User {
   languageCode String?
   balance      Decimal   @default(0) @db.Decimal(12, 2) // store credit / wallet
   isBanned     Boolean   @default(false)
-  isAdmin      Boolean   @default(false)
+  referralBlocked Boolean @default(false) // admin stopped this user's Invite & Earn
+  isAdmin     Boolean   @default(false)
   totalSpent   Decimal   @default(0) @db.Decimal(12, 2)
   lastSeenAt   DateTime  @default(now())
   createdAt    DateTime  @default(now())

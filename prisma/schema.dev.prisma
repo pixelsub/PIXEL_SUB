@@ -21,6 +21,7 @@ model User {
   languageCode String?
   balance      Float     @default(0)
   isBanned     Boolean   @default(false)
+  referralBlocked Boolean @default(false)
   isAdmin      Boolean   @default(false)
   totalSpent   Float     @default(0)
   lastSeenAt   DateTime  @default(now())

@@ -23,7 +23,7 @@ import {
   statusEmoji,
 } from './keyboards.js';
 import { showAdminMenu } from './admin.js';
-import { RULES, parseReferralPayload, referralLink, registerReferral, referralStats } from '../services/referrals.js';
+import { RULES, parseReferralPayload, referralLink, registerReferral, referralStats, isReferralBlocked } from '../services/referrals.js';
 import { STOCK_COUNT, stockOf } from '../services/stock.js';
 
 // ---------- helpers ----------
@@ -647,6 +647,14 @@ async function showSupport(ctx) {
 }
 
 async function showReferral(ctx) {
+  if (ctx.dbUser.referralBlocked || (await isReferralBlocked(ctx.dbUser.id))) {
+    return smartSend(
+      ctx,
+      `🚫 <b>Invite & Earn stopped</b>\n\nYour referral program access has been stopped by the admin. ` +
+        `If you think this is a mistake, please contact support.`,
+      new InlineKeyboard().text('🏠 Menu', 'menu')
+    );
+  }
   const link = referralLink(ctx.me.username, ctx.dbUser.id);
   const s = await referralStats(ctx.dbUser.id);
   const text =
