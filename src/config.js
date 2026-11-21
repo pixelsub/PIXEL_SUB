@@ -33,7 +33,11 @@ const config = {
   port: int('PORT', 8080),
   publicUrl: derivePublicUrl(),
   // Customer-facing website for the "Buy in website" button in the bot menu.
-  websiteUrl: /^https?:\/\//i.test((process.env.WEBSITE_URL || '').trim()) ? process.env.WEBSITE_URL.trim() : '',
+  // Override with WEBSITE_URL; set it to "off" to hide the button.
+  websiteUrl: (() => {
+    const v = (process.env.WEBSITE_URL ?? 'https://reseller.pixelsub.shop').trim();
+    return /^https?:\/\//i.test(v) ? v : '';
+  })(),
 
   telegram: {
     token: required('BOT_TOKEN'),
