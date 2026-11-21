@@ -335,6 +335,7 @@ const Views = (() => {
       field('Fixed delivery content (when stock is off)', `<textarea id="p-fixed" placeholder="Delivered to buyer. Supports {order_id}">${esc(p?.fixedContent || '')}</textarea>`, true),
       field('Active (visible in shop)', `<label class="switch"><input type="checkbox" id="p-active" ${p?.isActive !== false ? 'checked' : ''}/><span class="track"></span></label>`, true),
     ]);
+    if (!isNew) body.insertBefore(await sourcePicker(p), body.firstChild);
     const save = el('button', { class: 'btn btn-primary', text: isNew ? 'Create Product' : 'Save Changes' });
     save.onclick = async () => {
       const payload = {
@@ -357,6 +358,56 @@ const Views = (() => {
       } catch (e) { toast(e.message, 'bad'); save.disabled = false; }
     };
     modal({ title: isNew ? 'New Product' : 'Edit Product', body, footer: [el('button', { class: 'btn btn-ghost', text: 'Cancel', onclick: closeModal }), save], wide: true });
+  }
+
+  // "Stock source" block of the Edit screen: feed this product from your own
+  // stock or from a supplier's variant, and switch whenever you like.
+  async function sourcePicker(p) {
+    const box = el('div', { class: 'field full', style: 'border:1px solid var(--stroke);border-radius:12px;padding:12px' });
+    let opts;
+    try { opts = await API.get(`/products/${p.id}/source-options`); } catch (e) { box.appendChild(el('div', { class: 'hint', text: e.message })); return box; }
+
+    const srcSel = el('select');
+    srcSel.appendChild(el('option', { value: 'own', text: '📦 My own stock (I add stock myself)' }));
+    for (const s of opts.suppliers) srcSel.appendChild(el('option', { value: String(s.id), text: `🚚 ${s.name} (supplier API)` }));
+    srcSel.value = opts.current.supplierId ? String(opts.current.supplierId) : 'own';
+
+    const varSel = el('select');
+    const apply = el('button', { class: 'btn btn-sm btn-primary', text: 'Switch source' });
+    const note = el('div', { class: 'hint', style: 'margin-top:8px' });
+
+    const loadVariants = async () => {
+      varSel.innerHTML = '';
+      if (srcSel.value === 'own') { varSel.style.display = 'none'; note.textContent = 'Customers get items from the stock you add with the 📦 Stock button. Keep your own price and cost.'; return; }
+      varSel.style.display = '';
+      varSel.appendChild(el('option', { value: '', text: 'Loading…' }));
+      try {
+        const r = await API.get(`/products/${p.id}/source-options?supplierId=${srcSel.value}`);
+        varSel.innerHTML = '';
+        if (!r.variants.length) varSel.appendChild(el('option', { value: '', text: 'No products — press Sync on the Suppliers page' }));
+        for (const v of r.variants) varSel.appendChild(el('option', { value: v.variantId, text: `${v.name} · supplier price ${v.supplierPrice} · stock ${v.stock}` }));
+        if (opts.current.supplierId === Number(srcSel.value) && opts.current.variantId) varSel.value = opts.current.variantId;
+      } catch (e) { varSel.innerHTML = ''; varSel.appendChild(el('option', { value: '', text: e.message })); }
+      note.textContent = 'Price and cost are set from the supplier price + that supplier’s markup. Orders are bought from this supplier automatically.';
+    };
+    srcSel.onchange = loadVariants;
+
+    apply.onclick = async () => {
+      const own = srcSel.value === 'own';
+      if (!own && !varSel.value) return toast('Pick the supplier product', 'bad');
+      apply.disabled = true;
+      try {
+        await API.post(`/products/${p.id}/source`, own ? { source: 'own' } : { source: 'supplier', supplierId: Number(srcSel.value), variantId: varSel.value });
+        toast(own ? 'Now using your own stock' : 'Supplier source switched');
+        closeModal(); products();
+      } catch (e) { toast(e.message, 'bad'); apply.disabled = false; }
+    };
+
+    box.appendChild(el('div', { class: 't-strong', style: 'margin-bottom:8px', text: '🔀 Stock source' }));
+    box.appendChild(el('div', { class: 'row-flex', style: 'gap:8px;flex-wrap:wrap' }, [srcSel, varSel, apply]));
+    box.appendChild(note);
+    await loadVariants();
+    return box;
   }
 
   async function deleteProduct(p) {

@@ -17,6 +17,7 @@ import prisma from '../../db.js';
 import { requireAuth } from '../auth.js';
 import { num } from '../../utils.js';
 import { stockOf } from '../../services/stock.js';
+import { pricing } from '../../suppliers/index.js';
 import { queueNewProductCheck } from '../../services/channel.js';
 
 const router = express.Router();
@@ -110,6 +111,80 @@ router.get('/:id', async (req, res) => {
   });
   if (!product) return res.status(404).json({ error: 'Not found' });
   res.json({ product: serializeProduct(product) });
+});
+
+// -------- Stock source: own stock <-> a supplier's variant --------
+// One product can be fed by supplier A, supplier B, or the admin's own stock,
+// and switched at any time. Order history and the product itself stay as they are.
+const sourceInclude = { category: true, supplier: { select: { name: true } }, _count: { select: { stock: { where: { isSold: false } } } } };
+
+router.get('/:id/source-options', async (req, res) => {
+  const id = Number(req.params.id);
+  const product = await prisma.product.findUnique({ where: { id } });
+  if (!product) return res.status(404).json({ error: 'Not found' });
+  const suppliers = await prisma.supplier.findMany({ where: { isActive: true }, orderBy: { id: 'asc' }, select: { id: true, name: true, currency: true } });
+  const supplierId = Number(req.query.supplierId) || null;
+  let variants = [];
+  if (supplierId) {
+    // This product's own variant, plus unused ones (not already a selected / sold product).
+    const rows = await prisma.product.findMany({
+      where: { supplierId, OR: [{ id }, { supplierSelected: false, orderItems: { none: {} } }] },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, supplierVariantId: true, supplierPrice: true, supplierStock: true },
+    });
+    variants = rows.map((r) => ({ variantId: r.supplierVariantId, name: r.name, supplierPrice: num(r.supplierPrice), stock: r.supplierStock ?? 0 }));
+  }
+  res.json({ current: { supplierId: product.supplierId, variantId: product.supplierVariantId }, suppliers, variants });
+});
+
+router.post('/:id/source', async (req, res) => {
+  const id = Number(req.params.id);
+  const b = req.body || {};
+  const fail = (status, error) => res.status(status).json({ error });
+  const product = await prisma.product.findUnique({ where: { id } });
+  if (!product) return fail(404, 'Not found');
+
+  // An order already paid and waiting on the OLD supplier must finish there:
+  // re-buying it from a different source could charge twice.
+  const waiting = await prisma.order.count({
+    where: { status: 'PAID', items: { some: { productId: id } }, events: { some: { type: 'supplier_pending' } } },
+  });
+  if (waiting) return fail(409, `${waiting} paid order(s) for this product are still waiting on the supplier. Switch after they are delivered.`);
+
+  let data;
+  if (b.source === 'own') {
+    data = {
+      supplierId: null, supplierVariantId: null, supplierPrice: null, supplierStock: null,
+      supplierMinQty: null, supplierMaxQty: null, supplierSelected: false, markupPct: null, usesStock: true,
+    };
+  } else if (b.source === 'supplier') {
+    const supplier = await prisma.supplier.findUnique({ where: { id: Number(b.supplierId) } });
+    if (!supplier || !supplier.isActive) return fail(400, 'Supplier not found or disabled');
+    const target = await prisma.product.findFirst({ where: { supplierId: supplier.id, supplierVariantId: String(b.variantId || '') } });
+    if (!target) return fail(400, 'That supplier product was not found. Press Sync on the Suppliers page first.');
+    if (target.id !== id) {
+      if (target.supplierSelected) return fail(409, `“${target.name}” is already sold as its own product.`);
+      if (await prisma.orderItem.count({ where: { productId: target.id } })) return fail(409, `“${target.name}” has order history as a separate product.`);
+    }
+    const { cost, price } = pricing(supplier, target.supplierPrice ?? 0, null);
+    data = {
+      supplierId: supplier.id, supplierVariantId: target.supplierVariantId, supplierPrice: target.supplierPrice,
+      supplierStock: target.supplierStock, supplierMinQty: target.supplierMinQty, supplierMaxQty: target.supplierMaxQty,
+      supplierSelected: true, markupPct: null, usesStock: true, price, cost,
+    };
+    if (target.id !== id) {
+      // The unused catalog placeholder is replaced by this product.
+      await prisma.$transaction([
+        prisma.stockItem.deleteMany({ where: { productId: target.id } }),
+        prisma.product.delete({ where: { id: target.id } }),
+      ]);
+    }
+  } else {
+    return fail(400, 'source must be "own" or "supplier"');
+  }
+
+  const updated = await prisma.product.update({ where: { id }, data, include: sourceInclude });
+  res.json({ product: serializeProduct(updated) });
 });
 
 router.post('/', async (req, res) => {
