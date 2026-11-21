@@ -411,8 +411,8 @@ const Views = (() => {
   }
 
   async function deleteProduct(p) {
-    if (!(await confirmDialog({ title: 'Delete product?', message: `“${p.name}” will be removed. If it has order history it will be hidden instead.`, confirmText: 'Delete', danger: true }))) return;
-    try { const r = await API.del(`/products/${p.id}`); toast(r.softDeleted ? 'Product hidden (has history)' : 'Product deleted'); products(); }
+    if (!(await confirmDialog({ title: 'Delete product?', message: `“${p.name}” will be permanently deleted, with its unsold stock. Past orders and profit history stay in the dashboard.`, confirmText: 'Delete', danger: true }))) return;
+    try { await API.del(`/products/${p.id}`); toast('Product deleted'); products(); }
     catch (e) { toast(e.message, 'bad'); }
   }
 

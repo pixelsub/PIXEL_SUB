@@ -243,18 +243,21 @@ router.put('/:id', async (req, res) => {
 });
 
 router.delete('/:id', async (req, res) => {
+  const id = Number(req.params.id);
   try {
-    // Block delete if the product has orders (preserve history); soft-disable instead.
-    const orderItems = await prisma.orderItem.count({ where: { productId: Number(req.params.id) } });
-    if (orderItems > 0) {
-      // Supplier products also go back to "not selected" on the Supplier page.
-      const product = await prisma.product.update({
-        where: { id: Number(req.params.id) },
-        data: { isActive: false, supplierSelected: false },
-      });
-      return res.json({ ok: true, softDeleted: true, note: 'Product has order history; deactivated instead of deleted.' });
-    }
-    await prisma.product.delete({ where: { id: Number(req.params.id) } });
+    // A paid order still waiting on the supplier needs the product to finish.
+    const waiting = await prisma.order.count({
+      where: { status: 'PAID', items: { some: { productId: id } }, events: { some: { type: 'supplier_pending' } } },
+    });
+    if (waiting) return res.status(409).json({ error: `${waiting} paid order(s) for this product are still waiting on the supplier. Delete it after they are delivered.` });
+
+    // Real delete. Past orders keep their own copy of name, price and cost
+    // (order lines and delivered codes just lose the link), so revenue and
+    // profit history stay intact. Unsold stock goes with the product.
+    await prisma.$transaction([
+      prisma.stockItem.deleteMany({ where: { productId: id, isSold: false } }),
+      prisma.product.delete({ where: { id } }),
+    ]);
     res.json({ ok: true });
   } catch {
     res.status(404).json({ error: 'Not found' });
