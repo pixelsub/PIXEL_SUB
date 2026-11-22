@@ -1137,7 +1137,7 @@ const Views = (() => {
       field('API base URL', `<input id="sp-url" class="mono" value="${esc(s?.baseUrl || t0.defaultBaseUrl)}" />`, true),
       field(isNew ? 'API key' : `API key (leave empty to keep ••••${esc(s.keyHint || '')})`, `<input id="sp-key" type="password" autocomplete="off" class="mono" placeholder="tpk_…" />`, true),
       field('Supplier currency', `<input id="sp-cur" value="${esc(s?.currency || t0.defaultCurrency)}" />`),
-      field(`Rate: 1 ${d.shopCurrency} = ? supplier currency`, `<input id="sp-rate" type="number" step="0.0001" value="${s ? s.rate : ''}" placeholder="e.g. 16500" />`),
+      field(`Rate: 1 ${d.shopCurrency} = ? supplier currency`, `<input id="sp-rate" type="number" step="0.0001" value="${s ? s.rate : (t0.defaultCurrency === d.shopCurrency ? 1 : '')}" placeholder="e.g. 16500" />`),
       field('Markup % (your profit)', `<input id="sp-markup" type="number" step="0.1" value="${s ? s.markupPct : 20}" />`),
     ]);
     const preview = el('div', { class: 'hint', style: 'margin-top:10px' });
@@ -1174,7 +1174,7 @@ const Views = (() => {
     };
     modal({ title: isNew ? 'Add supplier' : `Edit ${s.name}`, subtitle: 'The API key is stored encrypted and never shown again.', body: el('div', {}, [body, preview]), footer: [el('button', { class: 'btn btn-ghost', text: 'Cancel', onclick: closeModal }), save], wide: true });
     ['sp-rate', 'sp-markup', 'sp-cur'].forEach((id) => f(id).addEventListener('input', updatePreview));
-    f('sp-type').addEventListener('change', () => { const t = types.find((x) => x.type === f('sp-type').value); if (t && isNew) { f('sp-url').value = t.defaultBaseUrl; f('sp-cur').value = t.defaultCurrency; } });
+    f('sp-type').addEventListener('change', () => { const t = types.find((x) => x.type === f('sp-type').value); if (t && isNew) { f('sp-url').value = t.defaultBaseUrl; f('sp-cur').value = t.defaultCurrency; f('sp-rate').value = t.defaultCurrency === d.shopCurrency ? 1 : ''; updatePreview(); } });
     updatePreview();
   }
 
