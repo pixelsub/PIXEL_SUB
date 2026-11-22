@@ -31,11 +31,9 @@ export async function showWallet(ctx) {
     `💰 <b>Your Wallet</b>\n\n` +
     `💳 Balance: <b>${money(num(u.balance))}</b>\n` +
     `🧾 Total spent: <b>${money(num(u.totalSpent))}</b>\n\n` +
-    `Top up with crypto and pay instantly from your balance — or request credit from our team.`;
+    `Top up and pay instantly from your balance.`;
   const kb = new InlineKeyboard()
     .text('Top Up Balance', 'w:topup').icon(UI.card)
-    .row()
-    .text('🙋 Request Credit', 'w:req')
     .row()
     .text('🏠 Main Menu', 'menu');
   await walletSend(ctx, text, kb);
@@ -60,8 +58,11 @@ async function showTopUp(ctx) {
     : '💳 <b>Top Up Wallet</b>\n\nChoose an amount to add with crypto:';
   await walletSend(ctx, text, amountKeyboard('w:tu'));
 }
+// Credit requests are disabled. Handlers stay registered only so old chat
+// buttons get a clear answer instead of silently doing nothing.
 async function showRequest(ctx) {
-  await walletSend(ctx, '🙋 <b>Request Store Credit</b>\n\nChoose how much credit to request from the admin:', amountKeyboard('w:rq'));
+  clearWalletState(ctx.from.id);
+  await walletSend(ctx, '🙋 <b>Credit requests are currently unavailable.</b>\n\nPlease top up your wallet instead.', new InlineKeyboard().text('⬅️ Wallet', 'balance'));
 }
 
 // Custom amounts arrive as plain text, not a button press — there is no
@@ -205,7 +206,7 @@ export async function handleWalletText(ctx) {
   if (amount > 100000) { await ctx.reply('❌ That amount is too large.'); return true; }
   clearWalletState(ctx.from.id);
   if (st === 'topup') await chooseTopUpMethod(ctx, +amount.toFixed(2));
-  else if (st === 'request') await createCreditRequest(ctx, +amount.toFixed(2));
+  else if (st === 'request') await showRequest(ctx);
   return true;
 }
 
@@ -221,13 +222,7 @@ export function registerWalletHandlers(bot) {
     await ctx.answerCallbackQuery().catch(() => {});
     await walletSend(ctx, '✏️ Send the <b>amount</b> you want to top up (e.g. 15):', new InlineKeyboard().text('⬅️ Wallet', 'balance'));
   });
-  bot.callbackQuery('w:rqcustom', async (ctx) => {
-    clearTxPrompt(ctx.from.id);
-    clearQtyPrompt(ctx.from.id);
-    custState.set(String(ctx.from.id), 'request');
-    await ctx.answerCallbackQuery().catch(() => {});
-    await walletSend(ctx, '✏️ Send the <b>amount</b> of credit to request (e.g. 15):', new InlineKeyboard().text('⬅️ Wallet', 'balance'));
-  });
+  bot.callbackQuery('w:rqcustom', async (ctx) => { await ctx.answerCallbackQuery().catch(() => {}); await showRequest(ctx); });
   bot.callbackQuery(/^w:tu:(\d+(?:\.\d+)?)$/, async (ctx) => {
     await chooseTopUpMethod(ctx, parseFloat(ctx.match[1]));
   });
@@ -238,7 +233,7 @@ export function registerWalletHandlers(bot) {
   // Legacy Binance-only top-up button still live in older chat messages.
   bot.callbackQuery(/^w:bt:(\d+(?:\.\d+)?)$/, async (ctx) => { await startManualTopUp(ctx, 'BINANCE', parseFloat(ctx.match[1])); });
   bot.callbackQuery(/^w:rq:(\d+(?:\.\d+)?)$/, async (ctx) => {
-    await ctx.answerCallbackQuery({ text: 'Sending request…' }).catch(() => {});
-    await createCreditRequest(ctx, parseFloat(ctx.match[1]));
+    await ctx.answerCallbackQuery().catch(() => {});
+    await showRequest(ctx);
   });
 }
