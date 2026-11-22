@@ -136,7 +136,7 @@ export async function buyFromSupplier(product, qty, idempotencyKey) {
   if (!supplier || !supplier.isActive) return { ok: false, code: 'supplier_unavailable', message: 'Supplier is disabled or deleted' };
   const s = runtime(supplier);
   try {
-    const order = await connectorFor(s).createOrder(s, { variantId: product.supplierVariantId, qty, idempotencyKey });
+    const order = await connectorFor(s).createOrder(s, { variantId: product.supplierVariantId, qty, idempotencyKey, unitPrice: num(product.supplierPrice) });
     if (order.balance != null) {
       await prisma.supplier.update({ where: { id: supplier.id }, data: { balance: order.balance } }).catch(() => {});
     }

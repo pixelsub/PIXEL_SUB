@@ -6,9 +6,9 @@
 // The supplier worker retries pending orders every minute; each retry re-POSTs
 // with the same Idempotency-Key (never charges twice) and then reads the order.
 //
-// max_total is deliberately NOT sent: Hangout requires an identical body on a
-// retry, and a price change between retries would turn into a conflict on an
-// order that was already paid for.
+// max_total is required by /purchase (invalid_purchase without it). Hangout also
+// wants an identical body on retry, so it is a generous whole-number ceiling
+// (2x price, rounded up) rather than the exact total.
 //
 // Same interface as tokopremium.js so the rest of the shop stays unaware.
 
@@ -162,8 +162,11 @@ export async function getOrder(supplier, id) {
 // same order, so an unknown outcome is simply retried. Since fulfilment is
 // manual the POST is normally "pending"; we then read the order once so a
 // replayed purchase that has since been delivered is picked up straight away.
-export async function createOrder(supplier, { variantId, qty, idempotencyKey }) {
+export async function createOrder(supplier, { variantId, qty, idempotencyKey, unitPrice }) {
   const body = { product_id: String(variantId), quantity: qty };
+  // Hangout requires max_total (our ceiling in USDT). Use a generous whole-number
+  // cap so a small price drift between retries keeps the body identical.
+  if (unitPrice > 0) body.max_total = Math.ceil(unitPrice * qty * 2) + 1;
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
