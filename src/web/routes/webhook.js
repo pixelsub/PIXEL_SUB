@@ -1,4 +1,6 @@
+import crypto from 'node:crypto';
 import express from 'express';
+import { syncSupplier } from '../../suppliers/index.js';
 import prisma from '../../db.js';
 import logger from '../../logger.js';
 import { verifyWebhookSignature } from '../../payments/cryptomus.js';
@@ -39,6 +41,61 @@ router.post('/cryptomus', async (req, res) => {
     logger.error({ err: e.message }, 'webhook processing error');
     // Return 200 anyway; the poller will catch it on the next tick.
     return res.status(200).json({ ok: true, note: 'deferred to poller' });
+  }
+});
+
+// Hangout restock webhook. Set it up by sending `/api webhook <PUBLIC_URL>/api/webhook/hangout`
+// to @hangoutrobot, then put the signing key it gives you in HANGOUT_WEBHOOK_SECRET.
+// The payload is never trusted for data: a verified event only triggers a fresh
+// sync of the Hangout supplier(s), and syncSupplier announces anything that
+// went from 0 to in stock to all users.
+const MAX_SKEW_MS = 5 * 60 * 1000;
+const seenEvents = new Map(); // event id -> ts (deliveries can be retried)
+
+function safeEqualHex(a, b) {
+  const x = Buffer.from(String(a), 'utf8');
+  const y = Buffer.from(String(b), 'utf8');
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+router.post('/hangout', async (req, res) => {
+  const secret = process.env.HANGOUT_WEBHOOK_SECRET || '';
+  if (!secret) return res.status(503).json({ ok: false, error: 'webhook secret not configured' });
+
+  const eventId = String(req.get('x-hangout-event-id') || '');
+  const timestamp = String(req.get('x-hangout-timestamp') || '');
+  const signature = String(req.get('x-hangout-signature') || '').replace(/^sha256=/i, '');
+  const raw = req.rawBody;
+  if (!eventId || !timestamp || !signature || !raw) return res.status(400).json({ ok: false });
+
+  let tsMs = Number(timestamp);
+  if (!Number.isFinite(tsMs)) tsMs = Date.parse(timestamp);
+  if (tsMs < 1e12) tsMs *= 1000; // seconds -> ms
+  if (!Number.isFinite(tsMs) || Math.abs(Date.now() - tsMs) > MAX_SKEW_MS) {
+    return res.status(401).json({ ok: false, error: 'stale timestamp' });
+  }
+
+  const expected = crypto.createHmac('sha256', secret).update(`${timestamp}.${eventId}.`).update(raw).digest('hex');
+  if (!safeEqualHex(expected, signature.toLowerCase())) {
+    logger.warn({ eventId }, 'hangout webhook signature mismatch');
+    return res.status(401).json({ ok: false, error: 'bad signature' });
+  }
+
+  // Dedupe by event id, then ack with 2xx straight away.
+  const now = Date.now();
+  for (const [id, ts] of seenEvents) if (now - ts > 60 * 60 * 1000) seenEvents.delete(id);
+  if (seenEvents.has(eventId)) return res.status(200).json({ ok: true, duplicate: true });
+  seenEvents.set(eventId, now);
+  res.status(200).json({ ok: true });
+
+  try {
+    const suppliers = await prisma.supplier.findMany({ where: { isActive: true, type: 'hangout' }, select: { id: true } });
+    for (const s of suppliers) {
+      await syncSupplier(s.id).catch((e) => logger.warn({ err: e.message }, 'hangout webhook sync failed'));
+    }
+    logger.info({ eventId, suppliers: suppliers.length }, 'hangout restock webhook processed');
+  } catch (e) {
+    logger.error({ err: e.message }, 'hangout webhook processing error');
   }
 });
 

@@ -7,6 +7,7 @@ import { brandEmoji } from '../emoji.js';
 import * as tokopremium from './tokopremium.js';
 import * as ventebot from './ventebot.js';
 import * as hangout from './hangout.js';
+import { announceRestocks } from '../services/restock.js';
 
 export { SupplierError } from './tokopremium.js';
 
@@ -77,6 +78,7 @@ export async function syncSupplier(supplierId) {
     const byVariant = new Map(existing.map((p) => [p.supplierVariantId, p]));
     const seen = new Set();
     let created = 0, updated = 0;
+    const restocked = []; // on-sale products that went from 0 to in stock
 
     for (const v of variants) {
       seen.add(v.variantId);
@@ -108,6 +110,7 @@ export async function syncSupplier(supplierId) {
         ) {
           await prisma.product.update({ where: { id: p.id }, data: { ...fields, ...rename } });
           updated++;
+          if (p.isActive && p.supplierStock === 0 && v.stock > 0) restocked.push(p.id);
         }
       }
     }
@@ -118,7 +121,8 @@ export async function syncSupplier(supplierId) {
       where: { id: supplier.id },
       data: { lastSyncAt: new Date(), lastSyncError: null, ...(balance != null ? { balance } : {}) },
     });
-    return { variants: variants.length, created, updated, removed: gone.length, balance };
+    if (restocked.length) announceRestocks(restocked);
+    return { variants: variants.length, created, updated, removed: gone.length, restocked: restocked.length, balance };
   } catch (e) {
     await prisma.supplier.update({ where: { id: supplier.id }, data: { lastSyncAt: new Date(), lastSyncError: `${e.code ? e.code + ': ' : ''}${e.message}`.slice(0, 500) } }).catch(() => {});
     throw e;

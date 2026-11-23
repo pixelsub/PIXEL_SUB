@@ -27,7 +27,8 @@ const publicDir = path.resolve(__dirname, '../../public');
 export function createServer() {
   const app = express();
   app.set('trust proxy', 1);
-  app.use(express.json({ limit: '1mb' }));
+  // Keep the raw body: supplier webhooks (Hangout) sign the exact bytes.
+  app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
   app.use(cookieParser());
 
   // Health check (Railway pings this)

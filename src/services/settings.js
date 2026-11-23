@@ -21,6 +21,8 @@ export const DEFAULT_SETTINGS = {
   channel_new_enabled: 'true',
   // DM every user when a new product goes on sale (see announceNewProductsToUsers)
   user_new_enabled: 'true',
+  // DM every user when a supplier product is restocked (see services/restock.js)
+  user_restock_enabled: 'true',
   channel_daily_header: "🔔 <b>{shop_name} • TODAY'S STOCK UPDATE</b>",
   channel_footer: '⚡ Instant delivery · 💬 24/7 support\n🛒 Tap <b>Shop Now</b> to order!',
   // Weekly rewards (see src/services/weekly_rewards.js). Off until the admin
