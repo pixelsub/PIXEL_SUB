@@ -12,7 +12,7 @@ import { announceRestocks } from '../services/restock.js';
 export { SupplierError } from './tokopremium.js';
 
 export const CONNECTORS = {
-  ventebot: { label: 'VenteBot', defaultBaseUrl: 'https://web-production-1c7b1.up.railway.app/api/reseller', defaultCurrency: 'USD', client: ventebot },
+  ventebot: { label: 'VenteBot', defaultBaseUrl: 'https://batman.sarl/api/reseller', defaultCurrency: 'USD', client: ventebot },
   tokopremium: { label: 'TokoPremium', defaultBaseUrl: 'https://api.tokopremium.digital/api/v1', defaultCurrency: 'IDR', client: tokopremium },
   hangout: { label: 'Hangout', defaultBaseUrl: 'https://hangoutapi.tg-tools.shop/api/v1', defaultCurrency: 'USD', client: hangout },
 };
