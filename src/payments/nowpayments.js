@@ -55,7 +55,9 @@ export async function createInvoice({ amount, currency, orderId, description }) 
     price_amount: Number(Number(amount).toFixed(2)),
     price_currency: String(currency || config.shop.currency).toLowerCase(),
     order_id: orderId,
-    order_description: description || orderId,
+    // ASCII only: non-ASCII characters are serialized differently by
+    // NOWPayments' IPN signer and broke signature checks.
+    order_description: String(description || orderId).replace(/[^\x20-\x7e]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200) || orderId,
     ipn_callback_url: callbackUrl,
     success_url: 'https://t.me',
     cancel_url: 'https://t.me',
@@ -85,13 +87,23 @@ function sortObject(value) {
   return value;
 }
 
+// PHP-style json_encode escapes non-ASCII as \uXXXX and "/" as "\/"; Node's
+// JSON.stringify does neither. NOWPayments' signer may use either style, so we
+// accept a signature over any of these equivalent serializations.
+const escapeUnicode = (s) => s.replace(/[\u007f-\uffff]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+const escapeSlashes = (s) => s.replace(/\//g, '\\/');
+
 /** Verify the x-nowpayments-sig header of an IPN callback. */
 export function verifyIpnSignature(body, signature) {
   if (!ipnSecret || !signature || !body || typeof body !== 'object') return false;
-  const expected = crypto.createHmac('sha512', ipnSecret).update(JSON.stringify(sortObject(body))).digest('hex');
-  const a = Buffer.from(expected, 'utf8');
-  const b = Buffer.from(String(signature).trim().toLowerCase(), 'utf8');
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  const json = JSON.stringify(sortObject(body));
+  const candidates = new Set([json, escapeUnicode(json), escapeSlashes(json), escapeSlashes(escapeUnicode(json))]);
+  const got = Buffer.from(String(signature).trim().toLowerCase(), 'utf8');
+  for (const c of candidates) {
+    const expected = Buffer.from(crypto.createHmac('sha512', ipnSecret).update(c).digest('hex'), 'utf8');
+    if (expected.length === got.length && crypto.timingSafeEqual(expected, got)) return true;
+  }
+  return false;
 }
 
 /**

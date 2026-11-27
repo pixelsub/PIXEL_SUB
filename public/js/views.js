@@ -501,7 +501,19 @@ const Views = (() => {
     const o = data;
     const actions = el('div', { class: 'modal-foot', style: 'flex-wrap:wrap' }, []);
     const act = (label, cls, fn) => { const b = el('button', { class: `btn btn-sm ${cls}`, html: label }); b.onclick = async () => { b.disabled = true; try { await fn(); } catch (e) { toast(e.message, 'bad'); b.disabled = false; } }; return b; };
-    if (o.status === 'PENDING') actions.appendChild(act('🔄 Re-check payment', 'btn-good', async () => { const r = await API.post(`/orders/${o.id}/recheck`); toast(`Status: ${r.status}`); closeModal(); orderDetail(o.id); }));
+    // NOWPayments orders can be re-checked even after expiry, with the customer's
+    // Payment ID from the NOWPayments page when no IPN reached us.
+    const isNow = o.method === 'NOWPAYMENTS';
+    if (o.status === 'PENDING' || (isNow && ['EXPIRED', 'FAILED'].includes(o.status))) actions.appendChild(act('🔄 Re-check payment', 'btn-good', async () => {
+      let body;
+      if (isNow) {
+        const pid = prompt('NOWPayments Payment ID (from the customer\'s payment page). Leave empty to use the one we already have:', o.paymentRef || '');
+        if (pid === null) return;
+        body = pid.trim() ? { paymentId: pid.trim() } : undefined;
+      }
+      const r = await API.post(`/orders/${o.id}/recheck`, body);
+      toast(`Status: ${r.status}`); closeModal(); orderDetail(o.id);
+    }));
     if (['PAID', 'DELIVERED'].includes(o.status)) actions.appendChild(act('📤 Re-deliver', 'btn-good', async () => { await API.post(`/orders/${o.id}/redeliver`); toast('Delivery re-sent'); }));
     if (['PAID', 'DELIVERED'].includes(o.status)) actions.appendChild(act('↩️ Mark refunded', '', async () => { await API.post(`/orders/${o.id}/refund`); toast('Marked refunded'); closeModal(); orderDetail(o.id); }));
     if (o.status === 'PENDING') actions.appendChild(act('✕ Cancel', 'btn-danger', async () => { await API.post(`/orders/${o.id}/cancel`); toast('Cancelled'); closeModal(); orderDetail(o.id); }));

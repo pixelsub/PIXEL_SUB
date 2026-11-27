@@ -45,16 +45,18 @@ router.post('/cryptomus', async (req, res) => {
   }
 });
 
-// NOWPayments IPN callback. Unlike Cryptomus, an unsigned/forged IPN is
-// rejected outright: the payment_id it carries is what we look up, so we only
-// trust it once the HMAC checks out. Even then delivery is decided by
-// reconcileOrder() re-reading the payment from the NOWPayments API.
+// NOWPayments IPN callback. The signature is a first-line filter only, like
+// Cryptomus: a real payment once went undelivered because the signer's JSON
+// serialization differed from ours. Delivery is decided solely by
+// reconcileOrder() re-reading the payment from the NOWPayments API, which
+// requires that payment to carry THIS order's order_id and full price — so a
+// forged IPN can at worst trigger a harmless lookup.
 router.post('/nowpayments', async (req, res) => {
   const body = req.body || {};
-  const sig = req.get('x-nowpayments-sig');
-  if (!verifyIpnSignature(body, sig)) {
-    logger.warn({ order_id: body.order_id, payment_id: body.payment_id }, 'NOWPayments IPN signature invalid — ignored');
-    return res.status(401).json({ ok: false });
+  if (!body.order_id || !body.payment_id) return res.status(400).json({ ok: false });
+  const sigOk = verifyIpnSignature(body, req.get('x-nowpayments-sig'));
+  if (!sigOk) {
+    logger.warn({ order_id: body.order_id, payment_id: body.payment_id }, 'NOWPayments IPN signature check failed (will still verify via API)');
   }
 
   try {

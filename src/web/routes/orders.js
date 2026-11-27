@@ -21,6 +21,7 @@ function serializeOrder(o, full = false) {
     payAmount: o.payAmount,
     network: o.network,
     invoiceUuid: o.invoiceUuid,
+    paymentRef: o.paymentRef,
     payUrl: o.payUrl,
     createdAt: o.createdAt,
     paidAt: o.paidAt,
@@ -103,11 +104,15 @@ router.get('/:id', async (req, res) => {
   res.json({ order: serializeOrder(order, true) });
 });
 
-// Force a status re-check against Cryptomus
+// Force a status re-check against the payment provider. For NOWPayments the
+// admin may pass the customer's Payment ID (shown on the NOWPayments page) when
+// no IPN reached us; it is only accepted if that payment belongs to this order.
 router.post('/:id/recheck', async (req, res) => {
   const order = await prisma.order.findUnique({ where: { id: Number(req.params.id) } });
   if (!order) return res.status(404).json({ error: 'Not found' });
-  const status = await reconcileOrder(order);
+  const paymentId = String(req.body?.paymentId ?? '').trim();
+  if (paymentId && !/^\d{1,20}$/.test(paymentId)) return res.status(400).json({ error: 'Payment ID must be numeric' });
+  const status = await reconcileOrder(order, paymentId ? { paymentId } : {});
   res.json({ ok: true, status });
 });
 

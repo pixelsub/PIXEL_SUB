@@ -107,7 +107,7 @@ export async function createOrder({ user, product, quantity, provider = 'CRYPTOM
       amount: lineTotal,
       currency: order.currency,
       orderId: invId,
-      description: `${publicId} · ${quantity} × ${product.name}`,
+      description: `${publicId} - ${quantity} x ${product.name}`,
     });
   } catch (e) {
     logger.error({ err: e.message, order: publicId, provider }, 'invoice creation failed');
@@ -166,7 +166,7 @@ export async function createTopUpOrder({ user, amount, provider = 'CRYPTOMUS' })
       amount,
       currency: order.currency,
       orderId: invId,
-      description: `${publicId} · wallet top-up`,
+      description: `${publicId} - wallet top-up`,
     });
   } catch (e) {
     logger.error({ err: e.message, order: publicId, provider }, 'top-up invoice failed');
