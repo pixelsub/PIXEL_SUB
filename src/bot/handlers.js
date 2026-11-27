@@ -23,6 +23,7 @@ import {
   backMenuKeyboard,
   qtyPromptKeyboard,
   statusEmoji,
+  NOWPAYMENTS_FEE_NOTE,
 } from './keyboards.js';
 import { showAdminMenu } from './admin.js';
 import { RULES, parseReferralPayload, referralLink, registerReferral, referralStats, isReferralBlocked } from '../services/referrals.js';
@@ -346,7 +347,8 @@ async function doCheckout(ctx, productId, qty, provider = 'CRYPTOMUS') {
     ` confirms on the blockchain, and your items arrive here in seconds. ✅
 
 ` +
-    `⏱️ This invoice expires in ${config.shop.orderExpiryMin} minutes.`;
+    `⏱️ This invoice expires in ${config.shop.orderExpiryMin} minutes.` +
+    (provider === 'NOWPAYMENTS' ? NOWPAYMENTS_FEE_NOTE : '');
 
   await smartSend(ctx, text, payKeyboard(order));
 }

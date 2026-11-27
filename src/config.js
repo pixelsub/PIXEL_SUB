@@ -78,6 +78,10 @@ const config = {
     apiBase: (process.env.NOWPAYMENTS_API_BASE || 'https://api.nowpayments.io/v1').replace(/\/+$/, ''),
     // partially_paid payments short by up to this % are delivered automatically.
     underpayTolerancePct: float('NOWPAYMENTS_UNDERPAY_TOLERANCE_PCT', 2),
+    // Customer pays the NOWPayments fees on top of the price (invoice flag
+    // is_fee_paid_by_user; NOWPayments forces a fixed rate, frozen ~10 min).
+    // Set NOWPAYMENTS_FEE_PAID_BY_USER=false to absorb the fees yourself.
+    feePaidByUser: (process.env.NOWPAYMENTS_FEE_PAID_BY_USER ?? 'true').trim().toLowerCase() !== 'false',
   },
 
   binance: {

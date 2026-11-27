@@ -3,6 +3,14 @@ import { parseEmoji, UI } from '../emoji.js';
 import { money, num } from '../utils.js';
 import config from '../config.js';
 
+// Shown under NOWPayments invoices. Exchanges deduct their withdrawal fee from
+// what is sent, which is what makes payments land "partially paid".
+export const NOWPAYMENTS_FEE_NOTE =
+  `\n\n⚠️ <b>Important:</b> send the <b>exact crypto amount</b> shown on the payment page. ` +
+  `Paying from an exchange (Binance, Bybit…)? Its withdrawal fee is taken from what you send — ` +
+  `add that fee on top so the full amount arrives, or the payment will be marked incomplete.` +
+  (config.nowpayments.feePaidByUser ? ` The rate is locked for about 10 minutes, so pay promptly.` : '');
+
 const cryptomusConfigured = () => Boolean(config.cryptomus.merchantId && config.cryptomus.paymentKey);
 
 export function mainMenuKeyboard(isAdmin = false) {

@@ -59,6 +59,9 @@ export async function createInvoice({ amount, currency, orderId, description }) 
     ipn_callback_url: callbackUrl,
     success_url: 'https://t.me',
     cancel_url: 'https://t.me',
+    // NOWPayments fees go on top of the customer's amount. Only valid with a
+    // fixed rate, so both flags travel together.
+    ...(config.nowpayments.feePaidByUser ? { is_fixed_rate: true, is_fee_paid_by_user: true } : {}),
   };
   logger.info({ orderId, amount: body.price_amount, callbackUrl }, 'Creating NOWPayments invoice');
   const inv = await request('POST', '/invoice', body);

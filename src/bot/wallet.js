@@ -5,7 +5,7 @@ import config from '../config.js';
 import logger from '../logger.js';
 import { money, num, escapeHtml } from '../utils.js';
 import { createTopUpOrder, createManualTopUpOrder, notifyManualPending } from '../services/orders.js';
-import { payKeyboard, manualPayKeyboard } from './keyboards.js';
+import { payKeyboard, manualPayKeyboard, NOWPAYMENTS_FEE_NOTE } from './keyboards.js';
 import { sendMessageSafe } from './delivery.js';
 import { isEnabled as cryptoEnabled } from '../payments/cryptomus.js';
 import { isEnabled as nowpaymentsEnabled } from '../payments/nowpayments.js';
@@ -99,7 +99,8 @@ async function startTopUp(ctx, amount, provider = 'CRYPTOMUS') {
   const text =
     `💳 <b>Top Up ${money(num(order.amount))}</b>\n` +
     `🧾 <code>${escapeHtml(order.publicId)}</code>\n\n` +
-    `Tap <b>Pay Now</b> to pay with crypto. Your balance updates <b>automatically</b> once the payment confirms. ⚡`;
+    `Tap <b>Pay Now</b> to pay with crypto. Your balance updates <b>automatically</b> once the payment confirms. ⚡` +
+    (provider === 'NOWPAYMENTS' ? NOWPAYMENTS_FEE_NOTE : '');
   await walletSend(ctx, text, payKeyboard(order));
 }
 
