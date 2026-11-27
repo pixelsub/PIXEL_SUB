@@ -903,6 +903,8 @@ const Views = (() => {
       el('div', { class: 'form-grid' }, [
         field('Shop name', `<input id="s-shop_name" value="${esc(s.shop_name || '')}" />`),
         field('Maintenance mode', `<label class="switch"><input type="checkbox" id="s-maintenance_mode" ${maint ? 'checked' : ''}/><span class="track"></span></label>`),
+        // Off hides the Crypto (Cryptomus) buttons in the bot; open invoices still confirm.
+        field('Crypto payment (Cryptomus)', `<label class="switch"><input type="checkbox" id="s-cryptomus_enabled" ${s.cryptomus_enabled !== 'false' ? 'checked' : ''}/><span class="track"></span></label>`),
         f('welcome_message', 'Welcome message', true),
         f('shop_intro', 'Shop intro', true),
         f('order_paid_message', 'Payment confirmed message', true),
@@ -918,6 +920,7 @@ const Views = (() => {
       const payload = {};
       for (const k of keys) { const elx = document.getElementById(`s-${k}`); if (elx) payload[k] = elx.value; }
       payload.maintenance_mode = document.getElementById('s-maintenance_mode').checked ? 'true' : 'false';
+      payload.cryptomus_enabled = document.getElementById('s-cryptomus_enabled').checked ? 'true' : 'false';
       saveBtn.disabled = true;
       try { await API.put('/settings', { settings: payload }); toast('Settings saved'); document.getElementById('brand-name').textContent = payload.shop_name || 'Shop Control'; }
       catch (e) { toast(e.message, 'bad'); }
