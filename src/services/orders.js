@@ -953,9 +953,10 @@ async function reconcileNowPayments(order, paymentId) {
     return order.status;
   }
 
-  // The payment must belong to THIS order and be for its full price — never
-  // deliver on a payment we can't tie to the invoice we created.
-  const priceOk = Math.abs(Number(info.price_amount) - num(order.amount)) < 0.01 &&
+  // The payment must belong to THIS order and be for at least its full price —
+  // never deliver on a payment we can't tie to the invoice we created. (Higher
+  // is fine: a "Payment markup" set in the NOWPayments dashboard raises it.)
+  const priceOk = Number(info.price_amount) >= num(order.amount) - 0.01 &&
     String(info.price_currency || '').toLowerCase() === String(order.currency).toLowerCase();
   if (String(info.order_id) !== String(order.invoiceOrderId) || !priceOk) {
     logger.warn(
