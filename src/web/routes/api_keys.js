@@ -79,7 +79,10 @@ router.get('/', async (req, res) => {
       spent: +totalRevenue.toFixed(2),
       profit: +(totalRevenue - totalCost).toFixed(2),
     },
-    keys: keys.map((k) => ({ ...serialize(k), stats: byKey.get(k.id) || { orders: 0, revenue: 0 } })),
+    // Top spenders first; ties (e.g. everyone at $0) keep newest-first.
+    keys: keys
+      .map((k) => ({ ...serialize(k), stats: byKey.get(k.id) || { orders: 0, revenue: 0 } }))
+      .sort((a, b) => b.stats.revenue - a.stats.revenue || b.stats.orders - a.stats.orders || b.id - a.id),
     baseUrl: `${config.publicUrl}/api/v1`,
   });
 });
