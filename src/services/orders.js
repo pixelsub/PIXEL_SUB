@@ -3,6 +3,7 @@ import logger from '../logger.js';
 import config from '../config.js';
 import { shortId, invoiceOrderId, num } from '../utils.js';
 import * as cryptomus from '../payments/cryptomus.js';
+import * as nowpayments from '../payments/nowpayments.js';
 import * as binance from '../payments/binance.js';
 import * as bybit from '../payments/bybit.js';
 import { sendDelivery, sendOutOfStockApology, notifyAdmins, sendMessageSafe } from '../bot/delivery.js';
@@ -28,11 +29,30 @@ async function logEvent(orderId, type, message = '') {
   }
 }
 
+// Hosted-invoice crypto providers. Both hand back an invoice id + a pay URL.
+export const INVOICE_PROVIDERS = new Set(['CRYPTOMUS', 'NOWPAYMENTS']);
+
+async function createProviderInvoice(provider, { amount, currency, orderId, description }) {
+  if (provider === 'NOWPAYMENTS') {
+    const inv = await nowpayments.createInvoice({ amount, currency, orderId, description });
+    return { uuid: inv.id, url: inv.invoice_url };
+  }
+  const inv = await cryptomus.createInvoice({
+    amount,
+    currency,
+    orderId,
+    lifetimeSeconds: config.shop.orderExpiryMin * 60,
+  });
+  return { uuid: inv.uuid, url: inv.url };
+}
+
 /**
- * Create an order for a single product + quantity, and create a Cryptomus invoice.
+ * Create an order for a single product + quantity, and create a hosted crypto
+ * invoice with `provider` (CRYPTOMUS or NOWPAYMENTS).
  * Returns { order, payUrl } or throws { code: 'OUT_OF_STOCK' | ... }.
  */
-export async function createOrder({ user, product, quantity }) {
+export async function createOrder({ user, product, quantity, provider = 'CRYPTOMUS' }) {
+  if (!INVOICE_PROVIDERS.has(provider)) throw new Error(`Unknown invoice provider ${provider}`);
   quantity = Math.max(1, Math.floor(Number(quantity) || 1));
 
   if (product.usesStock) {
@@ -56,7 +76,7 @@ export async function createOrder({ user, product, quantity }) {
       publicId,
       userId: user.id,
       status: 'PENDING',
-      method: 'CRYPTOMUS',
+      method: provider,
       amount: lineTotal,
       currency: config.shop.currency,
       invoiceOrderId: invId,
@@ -83,14 +103,14 @@ export async function createOrder({ user, product, quantity }) {
   // Create the hosted crypto invoice.
   let invoice;
   try {
-    invoice = await cryptomus.createInvoice({
+    invoice = await createProviderInvoice(provider, {
       amount: lineTotal,
       currency: order.currency,
       orderId: invId,
-      lifetimeSeconds: config.shop.orderExpiryMin * 60,
+      description: `${publicId} · ${quantity} × ${product.name}`,
     });
   } catch (e) {
-    logger.error({ err: e.message, order: publicId }, 'Cryptomus invoice creation failed');
+    logger.error({ err: e.message, order: publicId, provider }, 'invoice creation failed');
     await prisma.order.update({ where: { id: order.id }, data: { status: 'FAILED' } });
     await logEvent(order.id, 'note', `invoice creation failed: ${e.message}`);
     const err = new Error('Payment provider error');
@@ -113,7 +133,8 @@ export async function createOrder({ user, product, quantity }) {
  * invoice + webhook + poller pipeline; on payment we credit balance instead of
  * delivering a product.
  */
-export async function createTopUpOrder({ user, amount }) {
+export async function createTopUpOrder({ user, amount, provider = 'CRYPTOMUS' }) {
+  if (!INVOICE_PROVIDERS.has(provider)) throw new Error(`Unknown invoice provider ${provider}`);
   amount = +Number(amount).toFixed(2);
   if (!(amount > 0)) {
     const err = new Error('Invalid amount');
@@ -129,7 +150,7 @@ export async function createTopUpOrder({ user, amount }) {
       publicId,
       userId: user.id,
       status: 'PENDING',
-      method: 'CRYPTOMUS',
+      method: provider,
       kind: 'TOPUP',
       amount,
       currency: config.shop.currency,
@@ -141,14 +162,14 @@ export async function createTopUpOrder({ user, amount }) {
 
   let invoice;
   try {
-    invoice = await cryptomus.createInvoice({
+    invoice = await createProviderInvoice(provider, {
       amount,
       currency: order.currency,
       orderId: invId,
-      lifetimeSeconds: config.shop.orderExpiryMin * 60,
+      description: `${publicId} · wallet top-up`,
     });
   } catch (e) {
-    logger.error({ err: e.message, order: publicId }, 'Cryptomus top-up invoice failed');
+    logger.error({ err: e.message, order: publicId, provider }, 'top-up invoice failed');
     await prisma.order.update({ where: { id: order.id }, data: { status: 'FAILED' } });
     const err = new Error('Payment provider error');
     err.code = 'INVOICE_FAILED';
@@ -882,13 +903,16 @@ export async function markPaidAndDeliver(orderId, paymentMeta = {}) {
 }
 
 /**
- * Query Cryptomus for the true status of a pending order and act on it.
+ * Query the payment provider for the true status of an order and act on it.
+ * `opts.paymentId` is the NOWPayments payment_id from a verified IPN (the
+ * poller falls back to the one stored on the order).
  * Returns the resolved status string.
  */
-export async function reconcileOrder(order) {
+export async function reconcileOrder(order, opts = {}) {
   // Manually-verified methods (Binance, Bybit, …) are confirmed by an admin,
   // never by an API call.
   if (config.manualMethodKeys.has(order.method)) return order.status;
+  if (order.method === 'NOWPAYMENTS') return reconcileNowPayments(order, opts.paymentId);
   if (!order.invoiceUuid && !order.invoiceOrderId) return order.status;
   let info;
   try {
@@ -908,15 +932,79 @@ export async function reconcileOrder(order) {
     await markPaidAndDeliver(order.id, info);
     return 'PAID';
   }
-
-  // Funds arrived but landed under the invoice — typically a customer sending a
-  // round number of USDT, which the exchange rate turns into a few cents short.
-  // Deliver anyway when the gap is trivial; otherwise hand it to an admin. The
-  // one thing we never do is silently fail an order whose money we received.
   if (cryptomus.UNDERPAID_STATUSES.has(status)) {
-    const shortfall = cryptomus.shortfallPercent(info, num(order.amount));
-    const tolerance = config.cryptomus.underpayTolerancePct;
+    return handleUnderpaid(order, info, cryptomus.shortfallPercent(info, num(order.amount)), config.cryptomus.underpayTolerancePct);
+  }
+  if (cryptomus.FAILED_STATUSES.has(status)) return failPending(order, status);
+  return order.status; // still pending/processing
+}
 
+async function reconcileNowPayments(order, paymentId) {
+  const pid = paymentId || order.paymentRef;
+  // No payment yet: the customer hasn't picked a coin on the invoice page.
+  // NOWPayments only tells us the payment_id through the IPN.
+  if (!pid) return order.status;
+
+  let info;
+  try {
+    info = await nowpayments.getPayment(pid);
+  } catch (e) {
+    logger.warn({ err: e.message, order: order.publicId }, 'reconcile: NOWPayments payment fetch failed');
+    return order.status;
+  }
+
+  // The payment must belong to THIS order and be for its full price — never
+  // deliver on a payment we can't tie to the invoice we created.
+  const priceOk = Math.abs(Number(info.price_amount) - num(order.amount)) < 0.01 &&
+    String(info.price_currency || '').toLowerCase() === String(order.currency).toLowerCase();
+  if (String(info.order_id) !== String(order.invoiceOrderId) || !priceOk) {
+    logger.warn(
+      { order: order.publicId, pid, gotOrder: info.order_id, price: info.price_amount, cur: info.price_currency },
+      'NOWPayments payment does not match order — ignored'
+    );
+    return order.status;
+  }
+
+  if (order.paymentRef !== String(pid)) {
+    await prisma.order.update({ where: { id: order.id }, data: { paymentRef: String(pid) } });
+    order = { ...order, paymentRef: String(pid) };
+  }
+
+  const status = info.payment_status;
+  logger.debug({ order: order.publicId, status }, 'reconcile status (NOWPayments)');
+  const meta = { payer_currency: info.pay_currency, payer_amount: info.actually_paid ?? info.pay_amount, network: info.network };
+
+  if (nowpayments.PAID_STATUSES.has(status)) {
+    await markPaidAndDeliver(order.id, meta);
+    return 'PAID';
+  }
+  if (nowpayments.UNDERPAID_STATUSES.has(status)) {
+    const shortfall = nowpayments.shortfallPercent(info);
+    const view = {
+      ...meta,
+      payment_amount: shortfall === null ? undefined : +(num(order.amount) * (1 - shortfall / 100)).toFixed(2),
+      txid: info.payin_hash,
+    };
+    return handleUnderpaid(order, view, shortfall, config.nowpayments.underpayTolerancePct);
+  }
+  if (nowpayments.FAILED_STATUSES.has(status)) return failPending(order, status);
+  return order.status; // waiting / confirming
+}
+
+async function failPending(order, status) {
+  if (order.status === 'PENDING') {
+    await prisma.order.update({ where: { id: order.id }, data: { status: 'FAILED' } });
+    await logEvent(order.id, 'note', `payment ${status}`);
+  }
+  return 'FAILED';
+}
+
+// Funds arrived but landed under the invoice — typically a customer sending a
+// round number of USDT, which the exchange rate turns into a few cents short.
+// Deliver anyway when the gap is trivial; otherwise hand it to an admin. The
+// one thing we never do is silently fail an order whose money we received.
+async function handleUnderpaid(order, info, shortfall, tolerance) {
+  {
     if (shortfall !== null && shortfall <= tolerance) {
       logger.info(
         { order: order.publicId, shortfallPct: shortfall.toFixed(3), tolerance },
@@ -931,25 +1019,20 @@ export async function reconcileOrder(order) {
       return 'PAID';
     }
 
-    if (order.status === 'PENDING') {
-      await logEvent(
-        order.id,
-        'note',
-        `underpaid by ${shortfall === null ? 'an unknown amount' : shortfall.toFixed(2) + '%'} — awaiting admin review`
-      );
-      await notifyUnderpaid(order, info, shortfall);
+    // Alert admins once — the poller re-checks every tick while it stays PENDING.
+    if (['PENDING', 'EXPIRED'].includes(order.status)) {
+      const alreadyFlagged = await prisma.orderEvent.count({ where: { orderId: order.id, type: 'underpaid' } });
+      if (!alreadyFlagged) {
+        await logEvent(
+          order.id,
+          'underpaid',
+          `underpaid by ${shortfall === null ? 'an unknown amount' : shortfall.toFixed(2) + '%'} — awaiting admin review`
+        );
+        await notifyUnderpaid(order, info, shortfall);
+      }
     }
     return order.status; // stays PENDING so an admin can approve or refund
   }
-
-  if (cryptomus.FAILED_STATUSES.has(status)) {
-    if (order.status === 'PENDING') {
-      await prisma.order.update({ where: { id: order.id }, data: { status: 'FAILED' } });
-      await logEvent(order.id, 'note', `payment ${status}`);
-    }
-    return 'FAILED';
-  }
-  return order.status; // still pending/processing
 }
 
 // Mark long-unpaid pending orders as expired.

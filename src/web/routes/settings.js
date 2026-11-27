@@ -3,6 +3,7 @@ import { requireAuth } from '../auth.js';
 import { getAllSettings, setSettings, DEFAULT_SETTINGS } from '../../services/settings.js';
 import config from '../../config.js';
 import { isConfigured } from '../../payments/cryptomus.js';
+import { isConfigured as nowpaymentsConfigured } from '../../payments/nowpayments.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -21,6 +22,8 @@ router.get('/', async (req, res) => {
       orderExpiryMin: config.shop.orderExpiryMin,
       botConfigured: Boolean(config.telegram.token),
       cryptomusConfigured: isConfigured(),
+      nowpaymentsConfigured: nowpaymentsConfigured(),
+      nowpaymentsIpnUrl: `${config.publicUrl}/api/webhook/nowpayments`,
       adminTelegramIds: config.telegram.adminIds,
       supportUsername: config.telegram.supportUsername,
       env: config.env,

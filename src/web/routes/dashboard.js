@@ -15,7 +15,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // YYYY-MM-DD of the Dhaka day containing d.
 const dhakaDate = (d) => new Date(new Date(d).getTime() + DHAKA_OFFSET_MS).toISOString().slice(0, 10);
 
-const emptyMethods = () => Object.fromEntries(['BINANCE', 'BYBIT', 'CRYPTOMUS', 'BALANCE'].map((k) => [k, { orders: 0, amount: 0, topups: 0 }]));
+const emptyMethods = () => Object.fromEntries(['BINANCE', 'BYBIT', 'CRYPTOMUS', 'NOWPAYMENTS', 'BALANCE'].map((k) => [k, { orders: 0, amount: 0, topups: 0 }]));
 
 // GET /api/dashboard — headline stats + 14-day revenue series + recent orders
 router.get('/', async (req, res) => {

@@ -11,6 +11,7 @@ import { approveManualPayment, declineManualPayment } from '../services/orders.j
 import { bot } from './instance.js';
 import { setSetting } from '../services/settings.js';
 import { isConfigured as cryptomusConfigured, isEnabled as cryptomusEnabled } from '../payments/cryptomus.js';
+import { isConfigured as nowpaymentsConfigured, isEnabled as nowpaymentsEnabled } from '../payments/nowpayments.js';
 
 // In-memory per-admin conversation state (fine: only admins use it, resets on restart).
 const adminState = new Map();
@@ -48,10 +49,11 @@ export async function showAdminMenu(ctx) {
     prisma.order.count({ where: { status: 'PENDING' } }),
     prisma.product.count(),
   ]);
-  const [revenue, pendingCredits, cryptoOn] = await Promise.all([
+  const [revenue, pendingCredits, cryptoOn, nowOn] = await Promise.all([
     prisma.order.aggregate({ _sum: { amount: true }, where: { status: { in: ['PAID', 'DELIVERED'] }, kind: 'PURCHASE' } }),
     prisma.creditRequest.count({ where: { status: 'PENDING' } }),
     cryptomusEnabled(),
+    nowpaymentsEnabled(),
   ]);
 
   const text =
@@ -80,8 +82,18 @@ export async function showAdminMenu(ctx) {
   if (cryptomusConfigured()) {
     kb.text(cryptoOn ? '🪙 Crypto Payment: ✅ ON (tap to turn off)' : '🪙 Crypto Payment: ⛔ OFF (tap to turn on)', 'a:cmtoggle').row();
   }
+  if (nowpaymentsConfigured()) {
+    kb.text(nowOn ? '🌐 NOWPayments: ✅ ON (tap to turn off)' : '🌐 NOWPayments: ⛔ OFF (tap to turn on)', 'a:nptoggle').row();
+  }
   kb.text('🛍️ Open Shop (as customer)', 'shop');
   await adminSend(ctx, text, kb);
+}
+
+async function toggleNowPayments(ctx) {
+  const turnOn = !(await nowpaymentsEnabled());
+  await setSetting('nowpayments_enabled', turnOn ? 'true' : 'false');
+  logger.info({ admin: ctx.from.id, enabled: turnOn }, 'NOWPayments toggled');
+  await showAdminMenu(ctx);
 }
 
 async function toggleCryptomus(ctx) {
@@ -769,6 +781,7 @@ function statusDot(s) {
 
 function methodLabel(key) {
   if (key === 'CRYPTOMUS') return '🪙 Cryptomus';
+  if (key === 'NOWPAYMENTS') return '🌐 NOWPayments';
   if (key === 'BALANCE') return '💳 Wallet balance';
   const m = config.manualMethod(key);
   return m ? `${m.emoji} ${m.label} (manual)` : (key || '—');
@@ -955,6 +968,7 @@ export function registerAdminHandlers(bot) {
     [/^a:menu$/, (ctx) => showAdminMenu(ctx)],
     [/^a:stats$/, (ctx) => showStats(ctx)],
     [/^a:cmtoggle$/, (ctx) => toggleCryptomus(ctx)],
+    [/^a:nptoggle$/, (ctx) => toggleNowPayments(ctx)],
     [/^a:products$/, (ctx) => listProducts(ctx)],
     [/^a:pnew$/, (ctx) => startAddProduct(ctx)],
     [/^a:prod:(\d+)$/, (ctx) => showProduct(ctx, Number(ctx.match[1]))],

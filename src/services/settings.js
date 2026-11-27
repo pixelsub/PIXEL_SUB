@@ -16,6 +16,8 @@ export const DEFAULT_SETTINGS = {
   // Admin on/off switch for Cryptomus (crypto) payments in the bot. When off,
   // the Crypto buttons are hidden; already-open invoices still confirm.
   cryptomus_enabled: 'true',
+  // Same switch for NOWPayments (only matters once its API keys are set).
+  nowpayments_enabled: 'true',
   // Telegram channel auto-posting (see src/services/channel.js)
   channel_id: '',
   channel_daily_enabled: 'true',

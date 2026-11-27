@@ -72,6 +72,14 @@ const config = {
     underpayTolerancePct: float('CRYPTOMUS_UNDERPAY_TOLERANCE_PCT', 2),
   },
 
+  nowpayments: {
+    apiKey: required('NOWPAYMENTS_API_KEY'),
+    ipnSecret: required('NOWPAYMENTS_IPN_SECRET'),
+    apiBase: (process.env.NOWPAYMENTS_API_BASE || 'https://api.nowpayments.io/v1').replace(/\/+$/, ''),
+    // partially_paid payments short by up to this % are delivered automatically.
+    underpayTolerancePct: float('NOWPAYMENTS_UNDERPAY_TOLERANCE_PCT', 2),
+  },
+
   binance: {
     payId: (process.env.BINANCE_PAY_ID || '').trim(),
     // Read-only API credentials used to auto-verify incoming Binance Pay

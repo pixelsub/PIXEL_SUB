@@ -157,6 +157,7 @@ enum OrderStatus {
 
 enum PaymentMethod {
   CRYPTOMUS
+  NOWPAYMENTS // hosted crypto invoice via nowpayments.io
   BINANCE // manual verification: customer pays the admin's Binance ID directly
   BYBIT // manual verification: customer pays the admin's Bybit UID directly
   BALANCE
@@ -173,7 +174,8 @@ model Order {
   currency       String        @default("USD")
 
   // Cryptomus linkage
-  invoiceUuid    String?       // Cryptomus payment uuid
+  invoiceUuid    String?       // Cryptomus payment uuid / NOWPayments invoice id
+  paymentRef     String?       // NOWPayments payment_id (known once the customer picks a coin)
   invoiceOrderId String?       @unique // order_id we send to Cryptomus
   // Exchange transaction id (e.g. Binance Pay) matched to this order. Unique so
   // one incoming payment can never be used to settle two different orders.

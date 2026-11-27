@@ -4,6 +4,7 @@ import { syncSupplier } from '../../suppliers/index.js';
 import prisma from '../../db.js';
 import logger from '../../logger.js';
 import { verifyWebhookSignature } from '../../payments/cryptomus.js';
+import { verifyIpnSignature } from '../../payments/nowpayments.js';
 import { reconcileOrder } from '../../services/orders.js';
 
 const router = express.Router();
@@ -41,6 +42,36 @@ router.post('/cryptomus', async (req, res) => {
     logger.error({ err: e.message }, 'webhook processing error');
     // Return 200 anyway; the poller will catch it on the next tick.
     return res.status(200).json({ ok: true, note: 'deferred to poller' });
+  }
+});
+
+// NOWPayments IPN callback. Unlike Cryptomus, an unsigned/forged IPN is
+// rejected outright: the payment_id it carries is what we look up, so we only
+// trust it once the HMAC checks out. Even then delivery is decided by
+// reconcileOrder() re-reading the payment from the NOWPayments API.
+router.post('/nowpayments', async (req, res) => {
+  const body = req.body || {};
+  const sig = req.get('x-nowpayments-sig');
+  if (!verifyIpnSignature(body, sig)) {
+    logger.warn({ order_id: body.order_id, payment_id: body.payment_id }, 'NOWPayments IPN signature invalid — ignored');
+    return res.status(401).json({ ok: false });
+  }
+
+  try {
+    const order = body.order_id
+      ? await prisma.order.findFirst({ where: { invoiceOrderId: String(body.order_id), method: 'NOWPAYMENTS' } })
+      : null;
+    if (!order) {
+      logger.warn({ order_id: body.order_id, payment_id: body.payment_id }, 'NOWPayments IPN: order not found');
+      return res.status(200).json({ ok: true, note: 'order not found' });
+    }
+    const status = await reconcileOrder(order, { paymentId: body.payment_id ? String(body.payment_id) : undefined });
+    logger.info({ order: order.publicId, ipnStatus: body.payment_status, status }, 'NOWPayments IPN processed');
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    logger.error({ err: e.message }, 'NOWPayments IPN processing error');
+    // 500 so NOWPayments retries; the stored paymentRef also lets the poller catch it.
+    return res.status(500).json({ ok: false });
   }
 });
 

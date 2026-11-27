@@ -89,6 +89,10 @@ export function paymentKeyboard(product, qty, maxQty, opts = {}) {
   if (opts.crypto ?? cryptomusConfigured()) {
     kb.text(`Pay ${money(total)} with Crypto ⚡ (Auto)`, `checkout:${product.id}:${qty}`).icon(UI.usdt).row();
   }
+  // NOWPayments: second hosted-crypto option (opts.nowpayments from nowpayments.isEnabled()).
+  if (opts.nowpayments) {
+    kb.text(`Pay ${money(total)} with NOWPayments ⚡ (Auto)`, `npchk:${product.id}:${qty}`).icon(UI.usdt).row();
+  }
   // One button per manually-verified method (Binance, Bybit, …).
   for (const m of config.manualMethods) {
     const auto = (m.key === 'BINANCE' && config.binanceAutoVerify) || (m.key === 'BYBIT' && config.bybitAutoVerify);

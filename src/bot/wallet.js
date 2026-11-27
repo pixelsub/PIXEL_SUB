@@ -8,6 +8,9 @@ import { createTopUpOrder, createManualTopUpOrder, notifyManualPending } from '.
 import { payKeyboard, manualPayKeyboard } from './keyboards.js';
 import { sendMessageSafe } from './delivery.js';
 import { isEnabled as cryptoEnabled } from '../payments/cryptomus.js';
+import { isEnabled as nowpaymentsEnabled } from '../payments/nowpayments.js';
+
+const providerEnabled = (p) => (p === 'NOWPAYMENTS' ? nowpaymentsEnabled() : cryptoEnabled());
 import { setTxPrompt, clearTxPrompt, clearQtyPrompt } from './tx_prompt.js';
 
 const PRESETS = [5, 10, 25, 50, 100];
@@ -54,7 +57,7 @@ function amountKeyboard(prefix, includeCustom = true) {
 
 async function showTopUp(ctx) {
   const hasManual = config.manualMethods.length > 0;
-  if (!hasManual && !(await cryptoEnabled())) {
+  if (!hasManual && !(await cryptoEnabled()) && !(await nowpaymentsEnabled())) {
     return walletSend(ctx, '💳 <b>Top Up Wallet</b>\n\n⏸️ Top-ups are paused right now. Please check back soon.', new InlineKeyboard().text('⬅️ Wallet', 'balance'));
   }
   const text = hasManual
@@ -76,9 +79,9 @@ async function ack(ctx, text) {
   await ctx.answerCallbackQuery(text ? { text } : undefined).catch(() => {});
 }
 
-async function startTopUp(ctx, amount) {
+async function startTopUp(ctx, amount, provider = 'CRYPTOMUS') {
   // Old Crypto buttons stay in chats after the admin switches crypto off.
-  if (!(await cryptoEnabled())) {
+  if (!(await providerEnabled(provider))) {
     if (ctx.callbackQuery) {
       return ctx.answerCallbackQuery({ text: 'Crypto payment is turned off right now. Please choose another payment method.', show_alert: true }).catch(() => {});
     }
@@ -87,7 +90,7 @@ async function startTopUp(ctx, amount) {
   await ack(ctx, 'Creating invoice…');
   let result;
   try {
-    result = await createTopUpOrder({ user: ctx.dbUser, amount });
+    result = await createTopUpOrder({ user: ctx.dbUser, amount, provider });
   } catch (e) {
     logger.error({ err: e.message }, 'top-up failed');
     return walletSend(ctx, '⚠️ Could not create the top-up invoice. Please try again shortly.', new InlineKeyboard().text('⬅️ Wallet', 'balance'));
@@ -176,13 +179,15 @@ async function createCreditRequest(ctx, amount) {
 // gets the same payment-method choice as a preset one.
 async function chooseTopUpMethod(ctx, amount) {
   const hasCrypto = await cryptoEnabled();
+  const hasNow = await nowpaymentsEnabled();
   const manual = config.manualMethods;
 
   // More than one way to pay → let the customer choose.
-  if ((hasCrypto ? 1 : 0) + manual.length > 1) {
+  if ((hasCrypto ? 1 : 0) + (hasNow ? 1 : 0) + manual.length > 1) {
     await ack(ctx);
     const kb = new InlineKeyboard();
     if (hasCrypto) kb.text('Crypto ⚡ (Auto)', `w:tuc:${amount}`).icon(UI.usdt).row();
+    if (hasNow) kb.text('NOWPayments ⚡ (Auto)', `w:tun:${amount}`).icon(UI.usdt).row();
     for (const m of manual) {
       const isAuto =
         (m.key === 'BINANCE' && config.binanceAutoVerify) ||
@@ -198,10 +203,10 @@ async function chooseTopUpMethod(ctx, amount) {
     }
     kb.text('⬅️ Back', 'w:topup');
     await walletSend(ctx, `💳 <b>Top Up ${money(amount)}</b>\n\nChoose your payment method:`, kb);
-  } else if (!hasCrypto && manual.length === 1) {
+  } else if (!hasCrypto && !hasNow && manual.length === 1) {
     await startManualTopUp(ctx, manual[0].key, amount);
   } else {
-    await startTopUp(ctx, amount);
+    await startTopUp(ctx, amount, hasNow ? 'NOWPAYMENTS' : 'CRYPTOMUS');
   }
 }
 
@@ -239,6 +244,7 @@ export function registerWalletHandlers(bot) {
   });
   // Direct crypto top-up (after method picker)
   bot.callbackQuery(/^w:tuc:(\d+(?:\.\d+)?)$/, async (ctx) => { await startTopUp(ctx, parseFloat(ctx.match[1])); });
+  bot.callbackQuery(/^w:tun:(\d+(?:\.\d+)?)$/, async (ctx) => { await startTopUp(ctx, parseFloat(ctx.match[1]), 'NOWPAYMENTS'); });
   // Manual top-up for a specific method
   bot.callbackQuery(/^w:mt:([A-Z]+):(\d+(?:\.\d+)?)$/, async (ctx) => { await startManualTopUp(ctx, ctx.match[1], parseFloat(ctx.match[2])); });
   // Legacy Binance-only top-up button still live in older chat messages.

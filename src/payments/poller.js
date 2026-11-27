@@ -2,7 +2,8 @@ import prisma from '../db.js';
 import config from '../config.js';
 import logger from '../logger.js';
 import { reconcileOrder, expireStaleOrders } from '../services/orders.js';
-import { isConfigured } from './cryptomus.js';
+import { isConfigured as cryptomusConfigured } from './cryptomus.js';
+import { isConfigured as nowpaymentsConfigured } from './nowpayments.js';
 
 let timer = null;
 let running = false;
@@ -15,14 +16,14 @@ async function tick() {
   try {
     await expireStaleOrders();
 
-    // Manually-verified methods have no invoice to reconcile — exclude them all.
-    const manualKeys = [...config.manualMethodKeys];
+    // Only hosted-invoice orders can be reconciled by API. NOWPayments ones need
+    // the payment_id the first IPN gave us (paymentRef) before they can be read.
+    const or = [];
+    if (cryptomusConfigured()) or.push({ method: 'CRYPTOMUS', invoiceUuid: { not: null } });
+    if (nowpaymentsConfigured()) or.push({ method: 'NOWPAYMENTS', paymentRef: { not: null } });
+    if (!or.length) return;
     const pending = await prisma.order.findMany({
-      where: {
-        status: 'PENDING',
-        invoiceUuid: { not: null },
-        ...(manualKeys.length ? { method: { notIn: manualKeys } } : {}),
-      },
+      where: { status: 'PENDING', OR: or },
       orderBy: { createdAt: 'asc' },
       take: 40, // cap work per tick
     });
@@ -45,8 +46,8 @@ async function tick() {
 }
 
 export function startPoller() {
-  if (!isConfigured()) {
-    logger.warn('Cryptomus not configured — payment poller disabled.');
+  if (!cryptomusConfigured() && !nowpaymentsConfigured()) {
+    logger.warn('No crypto provider configured — payment poller disabled.');
     return;
   }
   const intervalMs = Math.max(15, config.shop.pollIntervalSec) * 1000;

@@ -6,6 +6,7 @@ import config from '../config.js';
 import { money, num, escapeHtml } from '../utils.js';
 import { getSetting, render } from '../services/settings.js';
 import { isEnabled as cryptoEnabled } from '../payments/cryptomus.js';
+import { isEnabled as nowpaymentsEnabled } from '../payments/nowpayments.js';
 import { createOrder, createManualOrder, notifyManualPending, reconcileOrder, payWithBalance, verifyBinanceByReference, verifyBybitByReference } from '../services/orders.js';
 import { showWallet, handleWalletText, clearWalletState } from './wallet.js';
 import { setTxPrompt, getTxPrompt, clearTxPrompt, qtyPrompt, clearQtyPrompt } from './tx_prompt.js';
@@ -196,7 +197,11 @@ async function showPayment(ctx, productId, qty) {
     `🧮 <b>Total:</b> ${money(total)}\n\n` +
     `💳 <b>Choose your payment method:</b>`;
 
-  await smartSend(ctx, text, paymentKeyboard(product, qty, maxQty, { balance: num(ctx.dbUser.balance), crypto: await cryptoEnabled() }));
+  await smartSend(ctx, text, paymentKeyboard(product, qty, maxQty, {
+    balance: num(ctx.dbUser.balance),
+    crypto: await cryptoEnabled(),
+    nowpayments: await nowpaymentsEnabled(),
+  }));
 }
 
 // Ask for a quantity the presets don't cover.
@@ -288,9 +293,10 @@ async function doPayWithBalance(ctx, productId, qty) {
 }
 
 
-async function doCheckout(ctx, productId, qty) {
+async function doCheckout(ctx, productId, qty, provider = 'CRYPTOMUS') {
   // Old Crypto buttons stay in chats after the admin switches crypto off.
-  if (!(await cryptoEnabled())) {
+  const enabled = provider === 'NOWPAYMENTS' ? await nowpaymentsEnabled() : await cryptoEnabled();
+  if (!enabled) {
     return ctx.answerCallbackQuery({ text: 'Crypto payment is turned off right now. Please choose another payment method.', show_alert: true }).catch(() => {});
   }
   const product = await getProductWithStock(productId);
@@ -302,7 +308,7 @@ async function doCheckout(ctx, productId, qty) {
 
   let result;
   try {
-    result = await createOrder({ user: ctx.dbUser, product, quantity: qty });
+    result = await createOrder({ user: ctx.dbUser, product, quantity: qty, provider });
   } catch (e) {
     if (e.code === 'OUT_OF_STOCK') {
       return smartSend(
@@ -321,7 +327,7 @@ async function doCheckout(ctx, productId, qty) {
 
   const { order } = result;
   const text =
-    `💎 <b>Pay with Crypto ⚡ (Auto)</b>\n` +
+    `💎 <b>Pay with ${provider === 'NOWPAYMENTS' ? 'NOWPayments' : 'Crypto'} ⚡ (Auto)</b>\n` +
     `━━━━━━━━━━━━━━━\n\n` +
     `🧾 Order: <b>${escapeHtml(order.publicId)}</b>\n` +
     `${emojiHtml(product.emoji)} ${escapeHtml(product.name)} ×${qty}\n` +
@@ -793,6 +799,9 @@ export function registerHandlers(bot) {
   });
   bot.callbackQuery(/^checkout:(\d+):(\d+)$/, async (ctx) => {
     await doCheckout(ctx, Number(ctx.match[1]), Number(ctx.match[2]));
+  });
+  bot.callbackQuery(/^npchk:(\d+):(\d+)$/, async (ctx) => {
+    await doCheckout(ctx, Number(ctx.match[1]), Number(ctx.match[2]), 'NOWPAYMENTS');
   });
   bot.callbackQuery(/^paybal:(\d+):(\d+)$/, async (ctx) => {
     await doPayWithBalance(ctx, Number(ctx.match[1]), Number(ctx.match[2]));
