@@ -9,6 +9,8 @@ import { queueNewProductCheck } from '../services/channel.js';
 import { sendMessageSafe } from './delivery.js';
 import { approveManualPayment, declineManualPayment } from '../services/orders.js';
 import { bot } from './instance.js';
+import { setSetting } from '../services/settings.js';
+import { isConfigured as cryptomusConfigured, isEnabled as cryptomusEnabled } from '../payments/cryptomus.js';
 
 // In-memory per-admin conversation state (fine: only admins use it, resets on restart).
 const adminState = new Map();
@@ -46,9 +48,10 @@ export async function showAdminMenu(ctx) {
     prisma.order.count({ where: { status: 'PENDING' } }),
     prisma.product.count(),
   ]);
-  const [revenue, pendingCredits] = await Promise.all([
+  const [revenue, pendingCredits, cryptoOn] = await Promise.all([
     prisma.order.aggregate({ _sum: { amount: true }, where: { status: { in: ['PAID', 'DELIVERED'] }, kind: 'PURCHASE' } }),
     prisma.creditRequest.count({ where: { status: 'PENDING' } }),
+    cryptomusEnabled(),
   ]);
 
   const text =
@@ -72,9 +75,20 @@ export async function showAdminMenu(ctx) {
     .text('📈 Profit', 'a:profit')
     .row()
     .text('📣 Broadcast', 'a:bc')
-    .row()
-    .text('🛍️ Open Shop (as customer)', 'shop');
+    .row();
+  // Crypto (Cryptomus) on/off switch. Only meaningful once the keys are set.
+  if (cryptomusConfigured()) {
+    kb.text(cryptoOn ? '🪙 Crypto Payment: ✅ ON (tap to turn off)' : '🪙 Crypto Payment: ⛔ OFF (tap to turn on)', 'a:cmtoggle').row();
+  }
+  kb.text('🛍️ Open Shop (as customer)', 'shop');
   await adminSend(ctx, text, kb);
+}
+
+async function toggleCryptomus(ctx) {
+  const turnOn = !(await cryptomusEnabled());
+  await setSetting('cryptomus_enabled', turnOn ? 'true' : 'false');
+  logger.info({ admin: ctx.from.id, enabled: turnOn }, 'Cryptomus payments toggled');
+  await showAdminMenu(ctx);
 }
 
 async function showStats(ctx) {
@@ -940,6 +954,7 @@ export function registerAdminHandlers(bot) {
   const routes = [
     [/^a:menu$/, (ctx) => showAdminMenu(ctx)],
     [/^a:stats$/, (ctx) => showStats(ctx)],
+    [/^a:cmtoggle$/, (ctx) => toggleCryptomus(ctx)],
     [/^a:products$/, (ctx) => listProducts(ctx)],
     [/^a:pnew$/, (ctx) => startAddProduct(ctx)],
     [/^a:prod:(\d+)$/, (ctx) => showProduct(ctx, Number(ctx.match[1]))],

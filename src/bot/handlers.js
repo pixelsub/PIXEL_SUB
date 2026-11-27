@@ -5,6 +5,7 @@ import logger from '../logger.js';
 import config from '../config.js';
 import { money, num, escapeHtml } from '../utils.js';
 import { getSetting, render } from '../services/settings.js';
+import { isEnabled as cryptoEnabled } from '../payments/cryptomus.js';
 import { createOrder, createManualOrder, notifyManualPending, reconcileOrder, payWithBalance, verifyBinanceByReference, verifyBybitByReference } from '../services/orders.js';
 import { showWallet, handleWalletText, clearWalletState } from './wallet.js';
 import { setTxPrompt, getTxPrompt, clearTxPrompt, qtyPrompt, clearQtyPrompt } from './tx_prompt.js';
@@ -195,7 +196,7 @@ async function showPayment(ctx, productId, qty) {
     `🧮 <b>Total:</b> ${money(total)}\n\n` +
     `💳 <b>Choose your payment method:</b>`;
 
-  await smartSend(ctx, text, paymentKeyboard(product, qty, maxQty, { balance: num(ctx.dbUser.balance) }));
+  await smartSend(ctx, text, paymentKeyboard(product, qty, maxQty, { balance: num(ctx.dbUser.balance), crypto: await cryptoEnabled() }));
 }
 
 // Ask for a quantity the presets don't cover.
@@ -288,6 +289,10 @@ async function doPayWithBalance(ctx, productId, qty) {
 
 
 async function doCheckout(ctx, productId, qty) {
+  // Old Crypto buttons stay in chats after the admin switches crypto off.
+  if (!(await cryptoEnabled())) {
+    return ctx.answerCallbackQuery({ text: 'Crypto payment is turned off right now. Please choose another payment method.', show_alert: true }).catch(() => {});
+  }
   const product = await getProductWithStock(productId);
   if (!product || !product.isActive) {
     return ctx.answerCallbackQuery({ text: 'Product unavailable.', show_alert: true }).catch(() => {});

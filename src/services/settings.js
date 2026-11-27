@@ -13,6 +13,9 @@ export const DEFAULT_SETTINGS = {
   order_paid_message: '✅ <b>Payment confirmed!</b>\n\nThank you for your purchase. Your items are below. 👇',
   rules_accepted: 'true',
   maintenance_mode: 'false',
+  // Admin on/off switch for Cryptomus (crypto) payments in the bot. When off,
+  // the Crypto buttons are hidden; already-open invoices still confirm.
+  cryptomus_enabled: 'true',
   // Telegram channel auto-posting (see src/services/channel.js)
   channel_id: '',
   channel_daily_enabled: 'true',

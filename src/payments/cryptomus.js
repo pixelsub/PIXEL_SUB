@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import config from '../config.js';
 import logger from '../logger.js';
+import { getSetting } from '../services/settings.js';
 
 const { merchantId, paymentKey, apiBase } = config.cryptomus;
 
@@ -128,4 +129,14 @@ export function verifyWebhookSignature(body) {
 
 export function isConfigured() {
   return Boolean(merchantId && paymentKey);
+}
+
+/**
+ * Whether customers may start NEW Cryptomus payments: keys present AND the
+ * admin has not switched crypto off. The poller/webhook use isConfigured()
+ * instead, so invoices opened before the switch-off still get confirmed.
+ */
+export async function isEnabled() {
+  if (!isConfigured()) return false;
+  return (await getSetting('cryptomus_enabled')) !== 'false';
 }

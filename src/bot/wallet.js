@@ -7,6 +7,7 @@ import { money, num, escapeHtml } from '../utils.js';
 import { createTopUpOrder, createManualTopUpOrder, notifyManualPending } from '../services/orders.js';
 import { payKeyboard, manualPayKeyboard } from './keyboards.js';
 import { sendMessageSafe } from './delivery.js';
+import { isEnabled as cryptoEnabled } from '../payments/cryptomus.js';
 import { setTxPrompt, clearTxPrompt, clearQtyPrompt } from './tx_prompt.js';
 
 const PRESETS = [5, 10, 25, 50, 100];
@@ -53,6 +54,9 @@ function amountKeyboard(prefix, includeCustom = true) {
 
 async function showTopUp(ctx) {
   const hasManual = config.manualMethods.length > 0;
+  if (!hasManual && !(await cryptoEnabled())) {
+    return walletSend(ctx, '💳 <b>Top Up Wallet</b>\n\n⏸️ Top-ups are paused right now. Please check back soon.', new InlineKeyboard().text('⬅️ Wallet', 'balance'));
+  }
   const text = hasManual
     ? '💳 <b>Top Up Wallet</b>\n\nChoose an amount, then pick your payment method:'
     : '💳 <b>Top Up Wallet</b>\n\nChoose an amount to add with crypto:';
@@ -73,6 +77,13 @@ async function ack(ctx, text) {
 }
 
 async function startTopUp(ctx, amount) {
+  // Old Crypto buttons stay in chats after the admin switches crypto off.
+  if (!(await cryptoEnabled())) {
+    if (ctx.callbackQuery) {
+      return ctx.answerCallbackQuery({ text: 'Crypto payment is turned off right now. Please choose another payment method.', show_alert: true }).catch(() => {});
+    }
+    return walletSend(ctx, '⏸️ Crypto payment is turned off right now. Please choose another payment method.', new InlineKeyboard().text('⬅️ Wallet', 'balance'));
+  }
   await ack(ctx, 'Creating invoice…');
   let result;
   try {
@@ -164,7 +175,7 @@ async function createCreditRequest(ctx, amount) {
 // Preset buttons and typed custom amounts both end up here, so a custom amount
 // gets the same payment-method choice as a preset one.
 async function chooseTopUpMethod(ctx, amount) {
-  const hasCrypto = Boolean(config.cryptomus.merchantId && config.cryptomus.paymentKey);
+  const hasCrypto = await cryptoEnabled();
   const manual = config.manualMethods;
 
   // More than one way to pay → let the customer choose.

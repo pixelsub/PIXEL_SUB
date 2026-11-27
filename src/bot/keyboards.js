@@ -83,9 +83,10 @@ export function qtyKeyboard(product, maxQty) {
 export function paymentKeyboard(product, qty, maxQty, opts = {}) {
   const kb = new InlineKeyboard();
   const total = num(product.price) * qty;
-  // Only show Crypto when Cryptomus is fully configured. "(Auto)" is not
-  // decoration — it appears only where payment truly confirms itself.
-  if (cryptomusConfigured()) {
+  // Only show Crypto when Cryptomus is configured and not switched off by the
+  // admin (callers pass opts.crypto from cryptomus.isEnabled()). "(Auto)" is
+  // not decoration — it appears only where payment truly confirms itself.
+  if (opts.crypto ?? cryptomusConfigured()) {
     kb.text(`Pay ${money(total)} with Crypto ⚡ (Auto)`, `checkout:${product.id}:${qty}`).icon(UI.usdt).row();
   }
   // One button per manually-verified method (Binance, Bybit, …).
