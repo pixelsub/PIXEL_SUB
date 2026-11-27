@@ -501,21 +501,33 @@ const Views = (() => {
     const o = data;
     const actions = el('div', { class: 'modal-foot', style: 'flex-wrap:wrap' }, []);
     const act = (label, cls, fn) => { const b = el('button', { class: `btn btn-sm ${cls}`, html: label }); b.onclick = async () => { b.disabled = true; try { await fn(); } catch (e) { toast(e.message, 'bad'); b.disabled = false; } }; return b; };
-    // NOWPayments orders can be re-checked even after expiry, with the customer's
-    // Payment ID from the NOWPayments page when no IPN reached us.
+    // NOWPayments orders get an inline Payment ID box (no prompt/alert popups,
+    // which some browsers block) and can be re-checked even after expiry.
     const isNow = o.method === 'NOWPAYMENTS';
-    if (o.status === 'PENDING' || (isNow && ['EXPIRED', 'FAILED'].includes(o.status))) actions.appendChild(act('🔄 Re-check payment', 'btn-good', async () => {
-      let body;
-      if (isNow) {
-        const pid = prompt('NOWPayments Payment ID (from the customer\'s payment page). Leave empty to use the one we already have:', o.paymentRef || '');
-        if (pid === null) return;
-        body = pid.trim() ? { paymentId: pid.trim() } : undefined;
-      }
-      const r = await API.post(`/orders/${o.id}/recheck`, body);
-      if (r.diagnosis) alert(`Status: ${r.status}\n\n${r.diagnosis}`);
-      else toast(`Status: ${r.status}`);
-      closeModal(); orderDetail(o.id);
-    }));
+    let nowPanel = null;
+    if (isNow && ['PENDING', 'EXPIRED', 'FAILED'].includes(o.status)) {
+      const pidIn = el('input', { class: 'mono', placeholder: 'Payment ID from the NOWPayments page, e.g. 6208831262', value: o.paymentRef || '' });
+      const result = el('div', { class: 'hint', style: 'margin-top:8px;white-space:pre-wrap' });
+      const btn = el('button', { class: 'btn btn-sm btn-good', html: '🔄 Check with NOWPayments' });
+      btn.onclick = async () => {
+        btn.disabled = true;
+        result.textContent = 'Checking…';
+        try {
+          const pid = pidIn.value.trim();
+          const r = await API.post(`/orders/${o.id}/recheck`, pid ? { paymentId: pid } : {});
+          result.textContent = `Status: ${r.status}${r.diagnosis ? '\n' + r.diagnosis : ''}`;
+          if (r.status === 'PAID') { toast('Payment confirmed — delivering'); closeModal(); orderDetail(o.id); return; }
+        } catch (e) { result.textContent = 'Error: ' + e.message; }
+        btn.disabled = false;
+      };
+      nowPanel = el('div', { class: 'card', style: 'margin-top:16px' }, [
+        el('div', { class: 't-strong', text: '🌐 NOWPayments payment check' }),
+        el('div', { class: 'row-flex', style: 'margin-top:8px' }, [pidIn, btn]),
+        result,
+      ]);
+    } else if (o.status === 'PENDING') {
+      actions.appendChild(act('🔄 Re-check payment', 'btn-good', async () => { const r = await API.post(`/orders/${o.id}/recheck`); toast(`Status: ${r.status}`); closeModal(); orderDetail(o.id); }));
+    }
     if (['PAID', 'DELIVERED'].includes(o.status)) actions.appendChild(act('📤 Re-deliver', 'btn-good', async () => { await API.post(`/orders/${o.id}/redeliver`); toast('Delivery re-sent'); }));
     if (['PAID', 'DELIVERED'].includes(o.status)) actions.appendChild(act('↩️ Mark refunded', '', async () => { await API.post(`/orders/${o.id}/refund`); toast('Marked refunded'); closeModal(); orderDetail(o.id); }));
     if (o.status === 'PENDING') actions.appendChild(act('✕ Cancel', 'btn-danger', async () => { await API.post(`/orders/${o.id}/cancel`); toast('Cancelled'); closeModal(); orderDetail(o.id); }));
@@ -548,6 +560,7 @@ const Views = (() => {
         el('div', {}, [el('h3', { style: 'font-family:var(--font-head);margin:0 0 10px', text: 'Timeline' }), o.events?.length ? timeline : el('div', { class: 'hint', text: 'No events' })]),
       ]),
       el('h3', { style: 'font-family:var(--font-head);margin:18px 0 6px', text: 'Items' }), itemsList,
+      nowPanel,
     ]);
 
     const m = $('#modal');

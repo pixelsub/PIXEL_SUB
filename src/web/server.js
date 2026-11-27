@@ -56,7 +56,12 @@ export function createServer() {
   app.use('/api/v1', publicApiRoutes);
 
   // Static admin panel
-  app.use(express.static(publicDir, { extensions: ['html'] }));
+  // no-cache = always revalidate (ETag → cheap 304), so a deploy's new
+  // dashboard JS is picked up without the admin hard-refreshing.
+  app.use(express.static(publicDir, {
+    extensions: ['html'],
+    setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+  }));
 
   // SPA fallback -> index.html (admin panel handles its own routing)
   app.get('*', (req, res, next) => {
