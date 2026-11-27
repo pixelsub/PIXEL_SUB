@@ -512,7 +512,9 @@ const Views = (() => {
         body = pid.trim() ? { paymentId: pid.trim() } : undefined;
       }
       const r = await API.post(`/orders/${o.id}/recheck`, body);
-      toast(`Status: ${r.status}`); closeModal(); orderDetail(o.id);
+      if (r.diagnosis) alert(`Status: ${r.status}\n\n${r.diagnosis}`);
+      else toast(`Status: ${r.status}`);
+      closeModal(); orderDetail(o.id);
     }));
     if (['PAID', 'DELIVERED'].includes(o.status)) actions.appendChild(act('📤 Re-deliver', 'btn-good', async () => { await API.post(`/orders/${o.id}/redeliver`); toast('Delivery re-sent'); }));
     if (['PAID', 'DELIVERED'].includes(o.status)) actions.appendChild(act('↩️ Mark refunded', '', async () => { await API.post(`/orders/${o.id}/refund`); toast('Marked refunded'); closeModal(); orderDetail(o.id); }));

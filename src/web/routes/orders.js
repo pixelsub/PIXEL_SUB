@@ -5,6 +5,7 @@ import config from '../../config.js';
 import { requireAuth } from '../auth.js';
 import { num } from '../../utils.js';
 import { redeliverOrder, reconcileOrder } from '../../services/orders.js';
+import * as nowpayments from '../../payments/nowpayments.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -113,7 +114,29 @@ router.post('/:id/recheck', async (req, res) => {
   const paymentId = String(req.body?.paymentId ?? '').trim();
   if (paymentId && !/^\d{1,20}$/.test(paymentId)) return res.status(400).json({ error: 'Payment ID must be numeric' });
   const status = await reconcileOrder(order, paymentId ? { paymentId } : {});
-  res.json({ ok: true, status });
+
+  // When a NOWPayments order still isn't paid, tell the admin exactly why.
+  let diagnosis;
+  if (order.method === 'NOWPAYMENTS' && status !== 'PAID') {
+    const pid = paymentId || order.paymentRef;
+    if (!pid) {
+      diagnosis = 'No Payment ID yet — enter the one shown on the customer\'s NOWPayments page.';
+    } else {
+      try {
+        const p = await nowpayments.getPayment(pid);
+        const reasons = [];
+        if (String(p.order_id) !== String(order.invoiceOrderId)) reasons.push(`payment order_id "${p.order_id}" ≠ this order's "${order.invoiceOrderId}"`);
+        if (!(Number(p.price_amount) >= num(order.amount) - 0.01)) reasons.push(`price ${p.price_amount} < order ${num(order.amount)}`);
+        if (String(p.price_currency || '').toLowerCase() !== String(order.currency).toLowerCase()) reasons.push(`currency "${p.price_currency}" ≠ "${order.currency}"`);
+        diagnosis = `NOWPayments says: status=${p.payment_status}, order_id=${p.order_id}, price=${p.price_amount} ${p.price_currency}, ` +
+          `pay=${p.pay_amount} ${p.pay_currency}, paid=${p.actually_paid}` +
+          (reasons.length ? ` — NOT accepted: ${reasons.join('; ')}` : '');
+      } catch (e) {
+        diagnosis = `Could not read payment ${pid} from NOWPayments: ${e.message}`;
+      }
+    }
+  }
+  res.json({ ok: true, status, diagnosis });
 });
 
 // Re-send delivery to the customer
