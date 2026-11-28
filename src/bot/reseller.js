@@ -213,7 +213,16 @@ export function registerResellerHandlers(bot) {
     await ctx.answerCallbackQuery().catch(() => {});
     await confirmRegenerate(ctx);
   });
-  bot.callbackQuery('rapi:gen', generateKey);
+  bot.callbackQuery('rapi:gen', async (ctx) => {
+    try {
+      await generateKey(ctx);
+    } catch (e) {
+      // Without this the customer just sees nothing happen.
+      logger.error({ err: e.message, userId: ctx.dbUser?.id }, 'reseller API key generation failed');
+      await ctx.answerCallbackQuery({ text: 'Could not generate the API key. Please try again or contact support.', show_alert: true }).catch(() => {});
+      await ctx.reply('⚠️ Could not generate your API key right now. Please try again in a minute, or contact support.').catch(() => {});
+    }
+  });
   bot.callbackQuery('rapi:docs', async (ctx) => {
     await ctx.answerCallbackQuery().catch(() => {});
     await send(ctx, docsText(), docsKeyboard('ex'));
