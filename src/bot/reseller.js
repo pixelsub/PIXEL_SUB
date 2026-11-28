@@ -86,7 +86,10 @@ async function generateKey(ctx) {
   const now = Date.now();
   const wait = GENERATE_COOLDOWN_MS - (now - (lastGenerated.get(uid) || 0));
   if (wait > 0) {
-    await ctx.answerCallbackQuery({ text: `Please wait ${Math.ceil(wait / 1000)}s before generating again.`, show_alert: true }).catch(() => {});
+    await ctx.answerCallbackQuery({
+      text: `✅ Your API key was just created — it's in the message below. Please wait ${Math.ceil(wait / 1000)}s before generating another one.`,
+      show_alert: true,
+    }).catch(() => {});
     return;
   }
 
@@ -108,21 +111,31 @@ async function generateKey(ctx) {
   logger.info({ userId: uid, rotated: Boolean(existing) }, 'reseller generated API key in bot');
 
   // Sent as its own message so it is easy to copy and can be deleted on its own.
-  await ctx.reply(
+  // The key is already saved and shown only once, so this message MUST arrive:
+  // if Telegram rejects it (e.g. a client without copy-button support), resend
+  // it without the copy button.
+  const keyText =
     `🔑 <b>Your ${existing ? 'new ' : ''}API key</b>\n\n` +
-      `<code>${escapeHtml(raw)}</code>\n\n` +
-      `👆 Tap the key to copy it.\n\n` +
-      `⚠️ <b>Keep it secret.</b> Anyone with this key can place orders with your balance. ` +
-      `Use it only on your server — never in public website code.\n` +
-      (existing ? `\nYour previous key no longer works.\n` : '') +
-      `\nThis key is shown only once. Save it, then delete this message.`,
-    {
-      parse_mode: 'HTML',
-      reply_markup: new InlineKeyboard()
-        .copyText('📋 Copy API Key', raw).row()
-        .text("🗑 I've saved it — delete this message", 'rapi:del'),
+    `<code>${escapeHtml(raw)}</code>\n\n` +
+    `👆 Tap the key to copy it.\n\n` +
+    `⚠️ <b>Keep it secret.</b> Anyone with this key can place orders with your balance. ` +
+    `Use it only on your server — never in public website code.\n` +
+    (existing ? `\nYour previous key no longer works.\n` : '') +
+    `\nThis key is shown only once. Save it, then delete this message.`;
+  const delBtn = () => new InlineKeyboard().text("🗑 I've saved it — delete this message", 'rapi:del');
+  try {
+    await ctx.reply(keyText, { parse_mode: 'HTML', reply_markup: new InlineKeyboard().copyText('📋 Copy API Key', raw).row().text("🗑 I've saved it — delete this message", 'rapi:del') });
+  } catch (e) {
+    logger.warn({ err: e.message, userId: uid }, 'API key message with copy button failed — resending plain');
+    try {
+      await ctx.reply(keyText, { parse_mode: 'HTML', reply_markup: delBtn() });
+    } catch (e2) {
+      logger.error({ err: e2.message, userId: uid }, 'could not deliver new API key message');
+      // Let them generate again straight away — this key was never seen.
+      lastGenerated.delete(uid);
+      throw e2;
     }
-  );
+  }
   // Refresh the menu above so it shows the new key's status.
   await showResellerApi(ctx).catch(() => {});
 }
