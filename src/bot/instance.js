@@ -1,7 +1,10 @@
 import { Bot } from 'grammy';
 import config from '../config.js';
 import logger from '../logger.js';
-import { premiumEmojiTransformer } from '../emoji.js';
+import { premiumEmojiTransformer, setDecorationFailureLogger } from '../emoji.js';
+
+// Tells us which premium emoji id Telegram refused, so it can be fixed in TEXT_MAP.
+setDecorationFailureLogger((info) => logger.warn(info, 'premium emoji rejected by Telegram — resent with plain emoji'));
 
 // Create the bot only if a token is configured, so the web/admin panel can
 // still boot (and be used to configure things) even without a bot token.

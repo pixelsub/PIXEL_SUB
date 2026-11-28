@@ -172,9 +172,30 @@ export function decorateKeyboard(markup) {
   return changed ? { ...markup, inline_keyboard } : markup;
 }
 
+let onDecorationFailure = () => {};
+export function setDecorationFailureLogger(fn) { onDecorationFailure = fn; }
+
+const sameContent = (a, b) =>
+  a.text === b.text && a.caption === b.caption && a.reply_markup === b.reply_markup;
+
 // grammY API transformer: decorate text/caption of every HTML message, and
-// the leading emoji of every inline button.
-export function premiumEmojiTransformer(prev, method, payload, signal) {
+// the leading emoji of every inline button. Decoration is cosmetic, so if
+// Telegram rejects a message we actually changed (400 — e.g. a bad
+// custom_emoji_id), the original is sent instead: a single bad emoji id must
+// never stop a message (such as a newly generated API key) from arriving.
+// A message that was broken anyway just fails a second time, as before.
+export async function premiumEmojiTransformer(prev, method, payload, signal) {
+  const decorated = decoratePayload(payload);
+  if (!payload || sameContent(decorated, payload)) return prev(method, decorated, signal);
+  const res = await prev(method, decorated, signal);
+  if (res && res.ok === false && res.error_code === 400) {
+    onDecorationFailure({ method, description: res.description, text: String(decorated.text ?? decorated.caption ?? '').slice(0, 300) });
+    return prev(method, payload, signal);
+  }
+  return res;
+}
+
+function decoratePayload(payload) {
   if (payload && payload.parse_mode === 'HTML' && !payload.entities && !payload.caption_entities) {
     if (typeof payload.text === 'string') payload = { ...payload, text: decorateHtml(payload.text) };
     if (typeof payload.caption === 'string') payload = { ...payload, caption: decorateHtml(payload.caption) };
@@ -189,5 +210,5 @@ export function premiumEmojiTransformer(prev, method, payload, signal) {
   if (payload && payload.reply_markup?.inline_keyboard && (!maybeChannel || process.env.BOT_FRAGMENT_USERNAME === 'true')) {
     payload = { ...payload, reply_markup: decorateKeyboard(payload.reply_markup) };
   }
-  return prev(method, payload, signal);
+  return payload;
 }
